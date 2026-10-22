@@ -1,5 +1,6 @@
 import os
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 EMAIL_USER = os.environ.get('EMAIL_USER')
@@ -19,8 +20,8 @@ def send_email():
     )
 
     try:
-        # Utilisation de SSL sécurisé direct sur le port 465
-        context = smtplib.ssl.create_default_context()
+        # Création d'un contexte SSL sécurisé pour le port 465
+        context = ssl.create_default_context()
         with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
             smtp.login(EMAIL_USER, EMAIL_PASSWORD)
             smtp.send_message(msg)

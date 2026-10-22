@@ -19,9 +19,9 @@ def send_email():
     )
 
     try:
-        # Utilisation du port 587 avec TLS
-        with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
-            smtp.starttls()  # Chiffrement de la connexion
+        # Utilisation de SSL sécurisé direct sur le port 465
+        context = smtplib.ssl.create_default_context()
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
             smtp.login(EMAIL_USER, EMAIL_PASSWORD)
             smtp.send_message(msg)
         print("E-mail envoyé avec succès !")

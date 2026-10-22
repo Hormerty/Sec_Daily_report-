@@ -2,8 +2,8 @@ name: Rapport de Sécurité Quotidien
 
 on:
   schedule:
-    - cron: '0 8 * * *'
-  workflow_dispatch:
+    - cron: '0 8 * * *' # S'exécute tous les jours à 07:00 UTC
+  workflow_dispatch: # Permet aussi de le lancer manuellement depuis l'interface GitHub
 
 jobs:
   send-report:

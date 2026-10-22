@@ -64,7 +64,7 @@ def send_email():
     msg.set_content(
         f"Bonjour,\n\nVoici votre rapport de sécurité global quotidien.\n\n"
         f"{alerts_summary}\n\n"
-        f"Cordialement,\nNoursBOT"
+        f"Cordialement,\nNourSECBot"
     )
 
     try:

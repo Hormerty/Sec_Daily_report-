@@ -1,4 +1,4 @@
-#!/usr/init/env python3
+#!/usr/bin/env python3
 """NourSECBot : Veille cybersécurité & OSINT exhaustive et intelligente."""
 from __future__ import annotations
 
@@ -53,48 +53,42 @@ ACTUS = "Actualités & Médias"
 INTEL = "Threat Intelligence"
 BLOGS = "Blogs & OSINT"
 
-# --- Sources RSS enrichies ---
+# --- Sources RSS vérifiées et corrigées ---
 SOURCES_RSS = [
     # CERT & Autorités
     {"nom": "CERT-FR avis", "url": "https://www.cert.ssi.gouv.fr/avis/feed/", "langue": "fr", "categorie": ALERTES},
     {"nom": "CERT-FR alertes", "url": "https://www.cert.ssi.gouv.fr/alerte/feed/", "langue": "fr", "categorie": ALERTES},
-    {"nom": "CERT-EU", "url": "https://cert.europa.eu/publications/feed/", "langue": "en", "categorie": ALERTES},
+    {"nom": "CERT-EU", "url": "https://cert.europa.eu/publications/security-advisories-rss", "langue": "en", "categorie": ALERTES},
     {"nom": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "langue": "fr", "categorie": ALERTES},
-    {"nom": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "langue": "en", "categorie": ALERTES},
     {"nom": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "langue": "en", "categorie": ALERTES},
     
     # Dark web / Ransomware
     {"nom": "Ransomware.live", "url": "https://ransomware.live/cyberattacks.xml", "langue": "en", "categorie": DARKWEB},
 
     # Actualités & Médias
-    {"nom": "The Record", "url": "https://therecord.media/rss", "langue": "en", "categorie": ACTUS},
+    {"nom": "The Record", "url": "https://therecord.media/feed", "langue": "en", "categorie": ACTUS},
     {"nom": "SecurityWeek", "url": "https://www.securityweek.com/feed/", "langue": "en", "categorie": ACTUS},
     {"nom": "Dark Reading", "url": "https://www.darkreading.com/rss.xml", "langue": "en", "categorie": ACTUS},
     {"nom": "Help Net Security", "url": "https://www.helpnetsecurity.com/feed/", "langue": "en", "categorie": ACTUS},
-    {"nom": "Schneier on Security", "url": "https://www.schneier.com/blog/atom.xml", "langue": "en", "categorie": ACTUS},
     {"nom": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "langue": "en", "categorie": ACTUS},
     {"nom": "Next INpact", "url": "https://next.ink/feed/", "langue": "fr", "categorie": ACTUS},
-    {"nom": "LeMagIT Sécurité", "url": "https://www.lemagit.com/rss/3/index.xml", "langue": "fr", "categorie": ACTUS},
 
     # Threat Intelligence
     {"nom": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "langue": "en", "categorie": INTEL},
     {"nom": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "langue": "en", "categorie": INTEL},
     {"nom": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "langue": "en", "categorie": INTEL},
     {"nom": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/feed/", "langue": "en", "categorie": INTEL},
-    {"nom": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss.xml", "langue": "en", "categorie": INTEL},
+    {"nom": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "langue": "en", "categorie": INTEL},
     {"nom": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "langue": "en", "categorie": INTEL},
 
     # Blogs & OSINT
     {"nom": "Korben", "url": "https://korben.info/feed", "langue": "fr", "categorie": BLOGS},
     {"nom": "Zataz", "url": "https://www.zataz.com/feed/", "langue": "fr", "categorie": BLOGS},
-    {"nom": "Processus", "url": "https://processus.site/feed/", "langue": "fr", "categorie": BLOGS},
-    {"nom": "Hak5", "url": "https://hak5.org/blogs/rss", "langue": "en", "categorie": BLOGS},
+    {"nom": "Hak5", "url": "https://www.hak5.org/blog/rss", "langue": "en", "categorie": BLOGS},
     {"nom": "HackerSploit", "url": "https://hackersploit.org/feed/", "langue": "en", "categorie": BLOGS},
     {"nom": "NetworkChuck", "url": "https://networkchuck.com/feed/", "langue": "en", "categorie": BLOGS},
     {"nom": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "langue": "en", "categorie": BLOGS},
-    {"nom": "Week in OSINT", "url": "https://weekinosint.substack.com/feed", "langue": "en", "categorie": BLOGS},
 ]
-
 @dataclass
 class Article:
     source: str
@@ -105,7 +99,6 @@ class Article:
     detail: str = ""
     tags: str = ""
 
-# --- Gestion des articles déjà vus (seen.json) ---
 def charger_deja_vus() -> set[str]:
     if os.path.exists(SEEN_FILE):
         try:
@@ -217,8 +210,6 @@ def collecter_cisa_kev(session: requests.Session, depuis: datetime, deja_vus: se
         )
     articles.sort(key=lambda a: a.date, reverse=True)
     return articles[:MAX_CISA], None
-
-# --- Rendu HTML ---
 def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str]) -> str:
     e = html.escape
     total = sum(len(v) for v in groupes.values())

@@ -6,95 +6,72 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Configuration des sources à surveiller (RSS ou pages web principales)
-SOURCES = [
-    {
-        "nom": "CISA (Alertes Officielles)",
-        "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
-        "type": "cisa"
-    },
-    {
-        "nom": "Korben (Cybersécurité)",
-        "url": "https://korben.info/categories/cybersecurite/",
-        "type": "html",
-        "selector": "h2.entry-title a"
-    },
-    {
-        "nom": "Zataz",
-        "url": "https://www.zataz.com/",
-        "type": "html",
-        "selector": "h3.ast-loop-title аст-title a, h2.entry-title a"
-    },
-    {
-        "nom": "Processus.site",
-        "url": "https://processus.site/",
-        "type": "html",
-        "selector": "h2.entry-title a"
+# Utilisation prioritaires des flux RSS (beaucoup plus stables et fiables que le scraping direct)
+SOURCES_RSS = [
+    {"nom": "Korben", "url": "https://korben.info/feed"},
+    {"nom": "Zataz", "url": "https://www.zataz.com/feed/"},
+    {"nom": "Processus.site", "url": "https://processus.site/feed/"},
+    {"nom": "Hak5", "url": "https://hak5.org/blogs/rss"},
+    {"nom": "HackerSploit", "url": "https://hackersploit.org/feed/"},
+    {"nom": "NetworkChuck", "url": "https://networkchuck.com/feed/"}
+]
+
+def recuperer_articles_rss(source):
+    articles = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
-]
-
-# Mots-clés prioritaires pour mettre en avant les alertes critiques
-KEYWORDS_PRIORITAIRES = [
-    "node", "node.js", "node2shell", "outlook", "exchange", 
-    "microsoft", "ibm", "box", "rce", "cisa", "ransomware", "faille"
-]
-
-def recuperer_cisa():
-    articles = []
     try:
-        url = "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # Extraction basique des lignes du catalogue CISA
-            for row in soup.find_all('tr')[:5]: # Limité aux 5 dernières
-                cols = row.find_all('td')
-                if len(cols) > 1:
-                    cve = cols[0].text.strip()
-                    nom_produit = cols[1].text.strip()
-                    desc = cols[2].text.strip() if len(cols) > 2 else "Alerte critique CISA"
-                    articles.append({
-                        "source": "CISA",
-                        "titre": f"[{cve}] {nom_produit} - {desc}",
-                        "lien": url
-                    })
-    except Exception as e:
-        print(f"Erreur CISA: {e}")
-    return articles
-
-def recuperer_site_html(source):
-    articles = []
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         response = requests.get(source["url"], headers=headers, timeout=10)
         if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            liens = soup.select(source.get("selector", "a"))[:5] # Top 5 articles
-            for l in liens:
-                titre = l.text.strip()
-                href = l.get('href')
-                if titre and href:
-                    if not href.startswith("http"):
-                        # Gérer les liens relatifs si besoin
-                        continue
-                    articles.append({
-                        "source": source["nom"],
-                        "titre": titre,
-                        "lien": href
-                    })
+            soup = BeautifulSoup(response.content, 'xml') # Analyse du flux RSS/XML
+            items = soup.find_all('item')[:3] # Récupère les 3 derniers articles par source
+            
+            for item in items:
+                titre = item.find('title').text.strip() if item.find('title') else "Article sans titre"
+                link = item.find('link').text.strip() if item.find('link') else source["url"]
+                articles.append({
+                    "source": source["nom"],
+                    "titre": titre,
+                    "lien": link
+                })
     except Exception as e:
-        print(f"Erreur {source['nom']}: {e}")
+        print(f"Erreur lors de la récupération pour {source['nom']}: {e}")
+    return articles
+
+def recuperer_cisa_json():
+    """Récupère directement les vulnérabilités CISA au format JSON officiel"""
+    articles = []
+    url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            vulnerabilities = data.get('vulnerabilities', [])[-5:] # Top 5 plus récentes
+            for vuln in reversed(vulnerabilities):
+                cve = vuln.get('cveID', 'CVE Inconnu')
+                product = vuln.get('product', 'Produit inconnu')
+                summary = vuln.get('shortDescription', 'Pas de description')
+                
+                articles.append({
+                    "source": "CISA Alertes",
+                    "titre": f"[{cve}] {product} : {summary}",
+                    "lien": f"https://nvd.nist.gov/vuln/detail/{cve}"
+                })
+    except Exception as e:
+        print(f"Erreur lors de la récupération CISA: {e}")
     return articles
 
 def generer_rapport():
     tous_les_articles = []
     
-    # Récupération CISA
-    tous_les_articles.extend(recuperer_cisa())
+    # 1. Alertes CISA officielles
+    tous_les_articles.extend(recuperer_cisa_json())
     
-    # Récupération des autres sources configurées
-    for s in SOURCES[1:]:
-        tous_les_articles.extend(recuperer_site_html(s))
+    # 2. Articles RSS des blogs OSINT / Cyber
+    for source in SOURCES_RSS:
+        tous_les_articles.extend(recuperer_articles_rss(source))
         
     return tous_les_articles
 
@@ -122,29 +99,29 @@ def envoyer_email(html_content):
 if __name__ == "__main__":
     articles = generer_rapport()
     
-    # Construction du contenu HTML avec liens cliquables
     html_body = """
     <html>
-      <body style="font-family: Arial, sans-serif; color: #333;">
-        <h2 style="color: #d9534f;">🛡️ Rapport Global de Veille Cybersécurité & OSINT</h2>
+      <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+        <h2 style="color: #d9534f; border-bottom: 2px solid #d9534f; padding-bottom: 5px;">
+            🛡️ Rapport Global de Veille Cybersécurité & OSINT
+        </h2>
         <p>Voici les dernières actualités et alertes collectées de vos sources surveillées :</p>
         <hr>
-        <ul>
+        <ul style="list-style-type: none; padding-left: 0;">
     """
     
     if articles:
         translator = GoogleTranslator(source='auto', target='fr')
         for art in articles:
-            # Traduction automatique du titre si nécessaire
             try:
-                titre_traduit = translator.translate(art['titre'][:450])
-            except:
+                titre_traduit = translator.translate(art['titre'][:400])
+            except Exception:
                 titre_traduit = art['titre']
                 
             html_body += f"""
-            <li style="margin-bottom: 15px;">
-                <b>[{art['source']}]</b> {titre_traduit}<br>
-                <a href="{art['lien']}" target="_blank" style="color: #0275d8; text-decoration: none;">🔗 Lire l'article complet</a>
+            <li style="margin-bottom: 18px; padding: 10px; background-color: #f8f9fa; border-left: 4px solid #0275d8; border-radius: 4px;">
+                <strong style="color: #0275d8;">[{art['source']}]</strong> {titre_traduit}<br>
+                <a href="{art['lien']}" target="_blank" style="color: #d9534f; font-weight: bold; text-decoration: none;">🔗 Lire l'article complet</a>
             </li>
             """
     else:

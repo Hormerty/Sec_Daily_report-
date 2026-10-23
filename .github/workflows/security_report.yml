@@ -18,7 +18,7 @@ jobs:
           python-version: '3.10'
           
       - name: Installation des dépendances
-        run: pip install requests beautifulsoup4 deep-translator
+        run: pip install requests beautifulsoup4 deep-translator feedparser
         
       - name: Exécution du script de génération et d'envoi
         env:

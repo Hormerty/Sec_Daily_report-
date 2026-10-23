@@ -84,7 +84,6 @@ SOURCES_RSS = [
     # Blogs & OSINT
     {"nom": "Korben", "url": "https://korben.info/feed", "langue": "fr", "categorie": BLOGS},
     {"nom": "Zataz", "url": "https://www.zataz.com/feed/", "langue": "fr", "categorie": BLOGS},
-    {"nom": "Hak5", "url": "https://www.hak5.org/blog/rss", "langue": "en", "categorie": BLOGS},
     {"nom": "HackerSploit", "url": "https://hackersploit.org/feed/", "langue": "en", "categorie": BLOGS},
     {"nom": "NetworkChuck", "url": "https://networkchuck.com/feed/", "langue": "en", "categorie": BLOGS},
     {"nom": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "langue": "en", "categorie": BLOGS},

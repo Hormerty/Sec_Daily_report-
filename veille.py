@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/init/env python3
 """NourSECBot : Veille cybersécurité & OSINT exhaustive et intelligente."""
 from __future__ import annotations
 
@@ -116,7 +116,6 @@ def charger_deja_vus() -> set[str]:
     return set()
 
 def sauvegarder_deja_vus(vus: set[str]):
-    # On garde les 2000 derniers liens pour éviter que le fichier ne devienne trop grand
     liste_recente = list(vus)[-2000:]
     try:
         with open(SEEN_FILE, "w", encoding="utf-8") as f:
@@ -187,14 +186,14 @@ def collecter_cisa_kev(session: requests.Session, depuis: datetime, deja_vus: se
     except (requests.RequestException, ValueError) as exc:
         return [], f"CISA KEV : {exc}"
 
-    seuge_date = (datetime.now(timezone.utc) - timedelta(days=CISA_JOURS)).date()
+    seuil_date = (datetime.now(timezone.utc) - timedelta(days=CISA_JOURS)).date()
     articles = []
     for v in vulns:
         try:
             date = datetime.strptime(v["dateAdded"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
         except (KeyError, ValueError):
             continue
-        if date.date() < seuge_date:
+        if date.date() < seuil_date:
             continue
         
         cve = v.get("cveID", "CVE inconnu")
@@ -202,13 +201,13 @@ def collecter_cisa_kev(session: requests.Session, depuis: datetime, deja_vus: se
         if lien in deja_vus:
             continue
 
-        titre_ Brut = f"{cve} : {v.get('vendorProject', '?')} {v.get('product', '?')}"
-        tags = analyser_tags(titre_Brut + " " + v.get("shortDescription", ""))
+        titre_brut = f"{cve} : {v.get('vendorProject', '?')} {v.get('product', '?')}"
+        tags = analyser_tags(titre_brut + " " + v.get("shortDescription", ""))
 
         articles.append(
             Article(
                 source="CISA KEV",
-                titre=titre_Brut,
+                titre=titre_brut,
                 lien=lien,
                 date=date,
                 detail=v.get("shortDescription", ""),
@@ -294,7 +293,6 @@ def main() -> int:
             for a in articles:
                 nouveaux_liens.add(a.lien)
 
-    # Tri par catégorie
     groupes = dict(
         sorted(groupes.items(), key=lambda kv: ORDRE_CATEGORIES.index(kv[1][0].categorie))
     )
@@ -306,7 +304,6 @@ def main() -> int:
     sujet = f"🛡️ Veille Cybersécurité du {datetime.now().strftime('%d/%m/%Y')}"
     envoyer_email(sujet, rendre_html(groupes, erreurs))
 
-    # Mémoriser les nouveaux liens pour éviter les doublons futurs
     deja_vus.update(nouveaux_liens)
     sauvegarder_deja_vus(deja_vus)
 

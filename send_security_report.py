@@ -1,80 +1,161 @@
 import os
-import smtplib
-import ssl
-from email.message import EmailMessage
 import requests
+from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-EMAIL_USER = os.environ.get('EMAIL_USER')
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
-RECIPIENT_EMAIL = os.environ.get('RECIPIENT_EMAIL')
+# Configuration des sources à surveiller (RSS ou pages web principales)
+SOURCES = [
+    {
+        "nom": "CISA (Alertes Officielles)",
+        "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+        "type": "cisa"
+    },
+    {
+        "nom": "Korben (Cybersécurité)",
+        "url": "https://korben.info/categories/cybersecurite/",
+        "type": "html",
+        "selector": "h2.entry-title a"
+    },
+    {
+        "nom": "Zataz",
+        "url": "https://www.zataz.com/",
+        "type": "html",
+        "selector": "h3.ast-loop-title аст-title a, h2.entry-title a"
+    },
+    {
+        "nom": "Processus.site",
+        "url": "https://processus.site/",
+        "type": "html",
+        "selector": "h2.entry-title a"
+    }
+]
 
-def fetch_global_security_alerts_translated():
-    """
-    Récupère les dernières failles mondiales de la CISA et les traduit automatiquement en français.
-    """
-    report_lines = []
-    
+# Mots-clés prioritaires pour mettre en avant les alertes critiques
+KEYWORDS_PRIORITAIRES = [
+    "node", "node.js", "node2shell", "outlook", "exchange", 
+    "microsoft", "ibm", "box", "rce", "cisa", "ransomware", "faille"
+]
+
+def recuperer_cisa():
+    articles = []
     try:
-        url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-        response = requests.get(url, timeout=15)
-        
+        url = "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            data = response.json()
-            vulnerabilities = data.get('vulnerabilities', [])
-            recent_vulns = vulnerabilities[-5:]  # Sélection des 5 failles les plus récentes
-            
-            report_lines.append("Dernières failles critiques mondiales (Source CISA - Traduites en français) :\n")
-            
-            # Initialisation du traducteur vers le français
-            translator = GoogleTranslator(source='auto', target='fr')
-            
-            for vuln in recent_vulns:
-                cve = vuln.get('cveID', 'CVE Inconnue')
-                name = vuln.get('vulnerabilityName', 'Nom non spécifié')
-                vendor = vuln.get('vendorProject', 'Fournisseur')
-                product = vuln.get('product', 'Produit')
-                
-                # Traduction automatique des champs textuels pour un affichage en français
-                try:
-                    translated_name = translator.translate(name) if name else name
-                    translated_vendor = translator.translate(vendor) if vendor else vendor
-                    translated_product = translator.translate(product) if product else product
-                except Exception:
-                    # En cas de micro-coupure du service de traduction, on garde les textes originaux
-                    translated_name, translated_vendor, translated_product = name, vendor, product
-                
-                report_lines.append(f"• [{cve}] {translated_vendor} - {translated_product} : {translated_name}")
-        else:
-            report_lines.append(f"Impossible de joindre la base de données mondiale (Code HTTP {response.status_code})")
-
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Extraction basique des lignes du catalogue CISA
+            for row in soup.find_all('tr')[:5]: # Limité aux 5 dernières
+                cols = row.find_all('td')
+                if len(cols) > 1:
+                    cve = cols[0].text.strip()
+                    nom_produit = cols[1].text.strip()
+                    desc = cols[2].text.strip() if len(cols) > 2 else "Alerte critique CISA"
+                    articles.append({
+                        "source": "CISA",
+                        "titre": f"[{cve}] {nom_produit} - {desc}",
+                        "lien": url
+                    })
     except Exception as e:
-        report_lines.append(f"Erreur lors de la récupération des failles globales : {e}")
+        print(f"Erreur CISA: {e}")
+    return articles
 
-    return "\n".join(report_lines)
+def recuperer_site_html(source):
+    articles = []
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        response = requests.get(source["url"], headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            liens = soup.select(source.get("selector", "a"))[:5] # Top 5 articles
+            for l in liens:
+                titre = l.text.strip()
+                href = l.get('href')
+                if titre and href:
+                    if not href.startswith("http"):
+                        # Gérer les liens relatifs si besoin
+                        continue
+                    articles.append({
+                        "source": source["nom"],
+                        "titre": titre,
+                        "lien": href
+                    })
+    except Exception as e:
+        print(f"Erreur {source['nom']}: {e}")
+    return articles
 
-def send_email():
-    alerts_summary = fetch_global_security_alerts_translated()
+def generer_rapport():
+    tous_les_articles = []
     
-    msg = EmailMessage()
-    msg['Subject'] = "Rapport Global de Sécurité Quotidien (Traduit)"
-    msg['From'] = EMAIL_USER
-    msg['To'] = RECIPIENT_EMAIL
+    # Récupération CISA
+    tous_les_articles.extend(recuperer_cisa())
     
-    msg.set_content(
-        f"Bonjour,\n\nVoici votre rapport de sécurité global quotidien.\n\n"
-        f"{alerts_summary}\n\n"
-        f"Cordialement,\nNourSECBot"
-    )
+    # Récupération des autres sources configurées
+    for s in SOURCES[1:]:
+        tous_les_articles.extend(recuperer_site_html(s))
+        
+    return tous_les_articles
+
+def envoyer_email(html_content):
+    sender_email = os.environ.get("EMAIL_USER")
+    sender_password = os.environ.get("EMAIL_PASSWORD")
+    recipient_email = os.environ.get("RECIPIENT_EMAIL")
+
+    message = MIMEMultipart("alternative")
+    message["Subject"] = "🛡️ Rapport Global de Sécurité & OSINT Quotidien"
+    message["From"] = sender_email
+    message["To"] = recipient_email
+
+    part = MIMEText(html_content, "html")
+    message.attach(part)
 
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
-            smtp.login(EMAIL_USER, EMAIL_PASSWORD)
-            smtp.send_message(msg)
-        print("E-mail de rapport global traduit envoyé avec succès !")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient_email, message.as_string())
+        print("E-mail envoyé avec succès !")
     except Exception as e:
         print(f"Erreur lors de l'envoi de l'e-mail : {e}")
 
 if __name__ == "__main__":
-    send_email()
+    articles = generer_rapport()
+    
+    # Construction du contenu HTML avec liens cliquables
+    html_body = """
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #333;">
+        <h2 style="color: #d9534f;">🛡️ Rapport Global de Veille Cybersécurité & OSINT</h2>
+        <p>Voici les dernières actualités et alertes collectées de vos sources surveillées :</p>
+        <hr>
+        <ul>
+    """
+    
+    if articles:
+        translator = GoogleTranslator(source='auto', target='fr')
+        for art in articles:
+            # Traduction automatique du titre si nécessaire
+            try:
+                titre_traduit = translator.translate(art['titre'][:450])
+            except:
+                titre_traduit = art['titre']
+                
+            html_body += f"""
+            <li style="margin-bottom: 15px;">
+                <b>[{art['source']}]</b> {titre_traduit}<br>
+                <a href="{art['lien']}" target="_blank" style="color: #0275d8; text-decoration: none;">🔗 Lire l'article complet</a>
+            </li>
+            """
+    else:
+        html_body += "<li>Aucune nouvelle alerte récupérée pour le moment.</li>"
+        
+    html_body += """
+        </ul>
+        <hr>
+        <p style="font-size: 12px; color: #777;">Généré automatiquement par votre NourSECBot via GitHub Actions.</p>
+      </body>
+    </html>
+    """
+    
+    envoyer_email(html_body)

@@ -1,12 +1,12 @@
 import os
 import requests
-from bs4 import BeautifulSoup
+import feedparser
 from deep_translator import GoogleTranslator
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Utilisation prioritaires des flux RSS (beaucoup plus stables et fiables que le scraping direct)
+# Flux RSS / Atom très stables pour vos sites cibles
 SOURCES_RSS = [
     {"nom": "Korben", "url": "https://korben.info/feed"},
     {"nom": "Zataz", "url": "https://www.zataz.com/feed/"},
@@ -19,24 +19,25 @@ SOURCES_RSS = [
 def recuperer_articles_rss(source):
     articles = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     }
     try:
+        # Récupération du contenu brut avec en-tête navigateur complet
         response = requests.get(source["url"], headers=headers, timeout=10)
         if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'xml') # Analyse du flux RSS/XML
-            items = soup.find_all('item')[:3] # Récupère les 3 derniers articles par source
-            
-            for item in items:
-                titre = item.find('title').text.strip() if item.find('title') else "Article sans titre"
-                link = item.find('link').text.strip() if item.find('link') else source["url"]
+            feed = feedparser.parse(response.content)
+            for entry in feed.entries[:3]:  # Top 3 articles par source
+                titre = entry.title if hasattr(entry, 'title') else "Article sans titre"
+                link = entry.link if hasattr(entry, 'link') else source["url"]
                 articles.append({
                     "source": source["nom"],
                     "titre": titre,
                     "lien": link
                 })
+        else:
+            print(f"Code HTTP {response.status_code} pour {source['nom']}")
     except Exception as e:
-        print(f"Erreur lors de la récupération pour {source['nom']}: {e}")
+        print(f"Erreur lors de la récupération RSS pour {source['nom']}: {e}")
     return articles
 
 def recuperer_cisa_json():
@@ -66,10 +67,10 @@ def recuperer_cisa_json():
 def generer_rapport():
     tous_les_articles = []
     
-    # 1. Alertes CISA officielles
+    # 1. Alertes CISA
     tous_les_articles.extend(recuperer_cisa_json())
     
-    # 2. Articles RSS des blogs OSINT / Cyber
+    # 2. Articles des blogs OSINT & Cybersécurité
     for source in SOURCES_RSS:
         tous_les_articles.extend(recuperer_articles_rss(source))
         
@@ -114,6 +115,7 @@ if __name__ == "__main__":
         translator = GoogleTranslator(source='auto', target='fr')
         for art in articles:
             try:
+                # Évite de traduire si c'est déjà en français (ex: Korben, Zataz)
                 titre_traduit = translator.translate(art['titre'][:400])
             except Exception:
                 titre_traduit = art['titre']

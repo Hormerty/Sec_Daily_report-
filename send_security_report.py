@@ -6,7 +6,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Flux RSS / Atom très stables pour vos sites cibles
+# Sources configurées pour une collecte exhaustive (jusqu'à 30 articles par source)
 SOURCES_RSS = [
     {"nom": "Korben", "url": "https://korben.info/feed"},
     {"nom": "Zataz", "url": "https://www.zataz.com/feed/"},
@@ -22,11 +22,11 @@ def recuperer_articles_rss(source):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     }
     try:
-        # Récupération du contenu brut avec en-tête navigateur complet
         response = requests.get(source["url"], headers=headers, timeout=10)
         if response.status_code == 200:
             feed = feedparser.parse(response.content)
-            for entry in feed.entries[:3]:  # Top 3 articles par source
+            # Récupère jusqu'aux 30 derniers articles de la source
+            for entry in feed.entries[:30]:  
                 titre = entry.title if hasattr(entry, 'title') else "Article sans titre"
                 link = entry.link if hasattr(entry, 'link') else source["url"]
                 articles.append({
@@ -34,14 +34,12 @@ def recuperer_articles_rss(source):
                     "titre": titre,
                     "lien": link
                 })
-        else:
-            print(f"Code HTTP {response.status_code} pour {source['nom']}")
     except Exception as e:
         print(f"Erreur lors de la récupération RSS pour {source['nom']}: {e}")
     return articles
 
 def recuperer_cisa_json():
-    """Récupère directement les vulnérabilités CISA au format JSON officiel"""
+    """Récupère jusqu'aux 30 dernières vulnérabilités CISA au format JSON officiel"""
     articles = []
     url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -49,7 +47,7 @@ def recuperer_cisa_json():
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            vulnerabilities = data.get('vulnerabilities', [])[-5:] # Top 5 plus récentes
+            vulnerabilities = data.get('vulnerabilities', [])[-30:] # Jusqu'à 30 entrées
             for vuln in reversed(vulnerabilities):
                 cve = vuln.get('cveID', 'CVE Inconnu')
                 product = vuln.get('product', 'Produit inconnu')
@@ -82,7 +80,7 @@ def envoyer_email(html_content):
     recipient_email = os.environ.get("RECIPIENT_EMAIL")
 
     message = MIMEMultipart("alternative")
-    message["Subject"] = "🛡️ Rapport Global de Sécurité & OSINT Quotidien"
+    message["Subject"] = "🛡️ Rapport Global de Sécurité & OSINT Quotidien (Exhaustif)"
     message["From"] = sender_email
     message["To"] = recipient_email
 
@@ -104,7 +102,7 @@ if __name__ == "__main__":
     <html>
       <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
         <h2 style="color: #d9534f; border-bottom: 2px solid #d9534f; padding-bottom: 5px;">
-            🛡️ Rapport Global de Veille Cybersécurité & OSINT
+            🛡️ Rapport Global de Veille Cybersécurité & OSINT (Exhaustif)
         </h2>
         <p>Voici les dernières actualités et alertes collectées de vos sources surveillées :</p>
         <hr>
@@ -115,7 +113,6 @@ if __name__ == "__main__":
         translator = GoogleTranslator(source='auto', target='fr')
         for art in articles:
             try:
-                # Évite de traduire si c'est déjà en français (ex: Korben, Zataz)
                 titre_traduit = translator.translate(art['titre'][:400])
             except Exception:
                 titre_traduit = art['titre']

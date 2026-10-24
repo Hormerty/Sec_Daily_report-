@@ -2,14 +2,14 @@ name: Veille cybersécurité
 
 on:
   schedule:
-    - cron: "23 5 * * *"   # 05:23 UTC chaque jour (évite le pic de charge de l'heure pile)
+    - cron: "58 5 * * *"   # 05:58 UTC chaque jour (évite le pic de charge de l'heure pile)
   workflow_dispatch:        # lancement manuel pour tester
 
 permissions:
-  contents: write           # nécessaire pour enregistrer seen.json et stats.db dans le dépôt
+  contents: write              # nécessaire pour commiter seen.json et stats.db
 
 concurrency:
-  group: veille
+  group: veille                # jamais deux exécutions en même temps (sinon conflit sur stats.db)
   cancel-in-progress: false
 
 jobs:
@@ -18,25 +18,34 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-      - run: pip install -r requirements.txt
-      - run: python veille.py
+
+      - name: Dépendances
+        run: pip install feedparser requests pytest
+
+      - name: "Tests (visibles mais non bloquants, le rapport part quand même)"
+        continue-on-error: true
+        run: pytest -q
+
+      - name: Rapport
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          # Optionnels : sans ces secrets, le rapport part quand même (sans résumé IA / avec CVSS limité)
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-      - name: Enregistrer seen.json et stats.db
-        if: success()
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optionnel : résumé IA
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}               # optionnel : CVSS plus nombreux
+        run: python veille.py
+
+      - name: "Sauvegarder l'état (seen.json + stats.db)"
+        if: always()
         run: |
           git config user.name "noursecbot"
           git config user.email "noursecbot@users.noreply.github.com"
-          for f in seen.json stats.db; do
-            if [ -f "$f" ]; then git add "$f"; fi
-          done
-          git diff --staged --quiet || (git commit -m "Mise à jour de la mémoire et des statistiques" && git push)
+          for f in seen.json stats.db; do [ -f "$f" ] && git add "$f"; done
+          if ! git diff --cached --quiet; then
+            git commit -m "maj état $(date -u +%F)"
+            git push
+          fi

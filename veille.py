@@ -40,11 +40,11 @@ USER_AGENT = (
  
 # Marquage prioritaire (🇧🇪 / 🎯) : correspondance sur mots entiers
 MOTS_CLES_BELGIQUE = [
-    "belgique", "belgium", "belge",
+    "belgique", "belgium", "belge", "belges", "wallonie", "bruxelles",
     "securitas", "ccb", "safeonweb",
 ]
 MOTS_CLES_CIBLES = [
-    "exchange", "outlook", "node", "ivanti", "vmware", "symmetry", "citrix", "ibm", "vpn", "ransomware",
+    "exchange", "outlook", "node", "ivanti", "vmware", "citrix", "ibm", "vpn", "ransomware",
 ]
  
  
@@ -54,6 +54,39 @@ def _motif(mots: list[str]) -> re.Pattern:
  
 RE_BELGIQUE = _motif(MOTS_CLES_BELGIQUE)
 RE_CIBLES = _motif(MOTS_CLES_CIBLES)
+ 
+# --- Filtre de pertinence ------------------------------------------------------
+# Appliqué uniquement aux sources généralistes marquées "filtre": True dans SOURCES_RSS.
+# Volontairement LARGE (on préfère un article en trop qu'une faille ou une attaque manquée).
+# Un article est gardé si son titre, son résumé ou ses catégories contiennent l'un de ces termes.
+RE_FILTRE_RACINES = re.compile(
+    r"vuln|faille|exploit(?!ation)|zero[- ]?day|0[- ]?day|cyber|hack|pirat|malware|malveill|"
+    r"ransom|ran[cç]on|phishing|hame[cç]on|spyware|trojan|cheval de troie|botnet|backdoor|"
+    r"porte d[ée]rob|rootkit|ver informatique|virus|stealer|keylogger|ddos|d[ée]ni de service|"
+    r"breach|leak|fuite|violation de donn|vol de donn|attack|attaqu|intrusion|compromis|"
+    r"compromised|s[ée]cur|correctif|espionn|spying|usurpation|arnaque|scam|fraud|spoof|"
+    r"credential|identifiant|mot de passe|password|authenti|chiffrement|encrypt|firewall|"
+    r"pare-feu|dark ?web|darknet|sabotage|deepfake|rgpd|gdpr|cnil|pentest|bug bounty",
+    re.IGNORECASE,
+)
+# Termes courts : correspondance sur mots entiers pour éviter les faux positifs
+# (ex. "nist" dans "administration", "dos" dans "dossier").
+RE_FILTRE_MOTS = _motif([
+    "apt", "rce", "xss", "sqli", "csrf", "ssrf", "mfa", "2fa", "ioc", "edr", "vpn",
+    "cve", "cert", "cisa", "anssi", "nist", "patch", "patches", "worm", "wiper", "dos", "c2",
+])
+ 
+ 
+def _texte_entree(entree) -> str:
+    """Titre + résumé (sans HTML) + catégories de l'article."""
+    morceaux = [entree.get("title", ""), entree.get("summary", "")]
+    morceaux += [t.get("term", "") for t in entree.get("tags", []) if hasattr(t, "get")]
+    brut = " ".join(m for m in morceaux if m)
+    return html.unescape(re.sub(r"<[^>]+>", " ", brut))
+ 
+ 
+def est_pertinent(texte: str) -> bool:
+    return bool(RE_FILTRE_RACINES.search(texte) or RE_FILTRE_MOTS.search(texte))
  
 ALERTES = "Alertes & vulnérabilités"
 DARKWEB = "Dark web & ransomware"
@@ -81,8 +114,8 @@ SOURCES_RSS = [
     {"nom": "SecurityWeek", "url": "https://www.securityweek.com/feed/", "categorie": ACTUS},
     {"nom": "Dark Reading", "url": "https://www.darkreading.com/rss.xml", "categorie": ACTUS},
     {"nom": "Help Net Security", "url": "https://www.helpnetsecurity.com/feed/", "categorie": ACTUS},
-    {"nom": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "categorie": ACTUS},
-    {"nom": "Next", "url": "https://next.ink/feed/", "categorie": ACTUS},
+    {"nom": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "categorie": ACTUS, "filtre": True},
+    {"nom": "Next", "url": "https://next.ink/feed/", "categorie": ACTUS, "filtre": True},
     # Threat intelligence
     {"nom": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "categorie": INTEL},
     {"nom": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "categorie": INTEL},
@@ -91,7 +124,7 @@ SOURCES_RSS = [
     {"nom": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "categorie": INTEL},
     {"nom": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "categorie": INTEL},
     # Blogs & OSINT
-    {"nom": "Korben", "url": "https://korben.info/feed", "categorie": BLOGS},
+    {"nom": "Korben", "url": "https://korben.info/feed", "categorie": BLOGS, "filtre": True},
     {"nom": "Zataz", "url": "https://www.zataz.com/feed/", "categorie": BLOGS},
     {"nom": "HackerSploit", "url": "https://hackersploit.org/feed/", "categorie": BLOGS},
     {"nom": "NetworkChuck", "url": "https://networkchuck.com/feed/", "categorie": BLOGS},
@@ -164,6 +197,8 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime, dej
         return [], f"{source['nom']} : flux illisible"
  
     articles = []
+    filtre = source.get("filtre", False)
+    ecartes = 0
     for entree in flux.entries:
         t = entree.get("published_parsed") or entree.get("updated_parsed")
         if not t:
@@ -175,6 +210,10 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime, dej
         if lien in deja_vus:
             continue
         titre = entree.get("title", "Article sans titre")
+        if filtre and not est_pertinent(_texte_entree(entree)):
+            ecartes += 1
+            log.info("  écarté (hors-sujet) [%s] : %s", source["nom"], titre)
+            continue
         articles.append(
             Article(
                 source=source["nom"],
@@ -186,7 +225,8 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime, dej
             )
         )
     articles.sort(key=lambda a: a.date, reverse=True)
-    log.info("%s : %d nouveau(x)", source["nom"], len(articles))
+    log.info("%s : %d nouveau(x)%s", source["nom"], len(articles),
+             f", {ecartes} écarté(s) hors-sujet" if ecartes else "")
     return articles[: source.get("max", MAX_PAR_SOURCE)], None
  
  
@@ -243,7 +283,7 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str]) -> str:
         '<html><body style="font-family:Arial,sans-serif;color:#333;line-height:1.5">',
         '<h2 style="color:#d9534f;border-bottom:2px solid #d9534f">🛡️ Veille cybersécurité & OSINT</h2>',
         f"<p><b>{total}</b> nouveauté(s) sur {len(groupes)} source(s).</p>",
-        '<p style="font-size:12px;color:#555">Légende : 🇧🇪 Belgique · 🎯 vos mots-clés · '
+        '<p style="font-size:12px;color:#555">Légende : 🇧🇪 Belgique/Wallonie · 🎯 vos mots-clés · '
         "🔥 CVE utilisée par des ransomwares</p>",
     ]
     if erreurs:
@@ -271,7 +311,7 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str]) -> str:
         parties.append("</ul>")
     parties.append(
         '<hr><p style="font-size:12px;color:#777">'
-        "Généré automatiquement par Nours_SEC_bot.</p></body></html>"
+        "Généré automatiquement par NourSECBot via GitHub Actions.</p></body></html>"
     )
     return "\n".join(parties)
  

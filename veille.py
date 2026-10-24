@@ -77,7 +77,7 @@ MOTS_CLES_CIBLES = [
     "exchange", "outlook", "office 365", "microsoft 365", "sharepoint",
     "vmware", "esxi", "citrix", "fortinet", "fortigate", "palo alto",
     "check point", "checkpoint", "ivanti", "sap", "oracle", "ibm", "node",
-    "vpn", "amag", "symmetry", "securitas", "genetec"
+    "vpn", "amag", "symmetry", "securitas", "genetec",
     "voo", "ores",  # fournisseurs internet / réseau électrique locaux
 ]
 # Volontairement absents : "windows", "linux", "teams", "azure" (présents dans trop d'articles,

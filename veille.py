@@ -44,7 +44,7 @@ MOTS_CLES_BELGIQUE = [
     "securitas", "ccb", "safeonweb",
 ]
 MOTS_CLES_CIBLES = [
-    "exchange", "outlook", "node", "ivanti", "vmware", "citrix", "ibm", "vpn", "ransomware",
+    "exchange", "outlook", "node", "ivanti", "vmware", "symmetry", "citrix", "ibm", "vpn", "ransomware",
 ]
  
  
@@ -243,7 +243,7 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str]) -> str:
         '<html><body style="font-family:Arial,sans-serif;color:#333;line-height:1.5">',
         '<h2 style="color:#d9534f;border-bottom:2px solid #d9534f">🛡️ Veille cybersécurité & OSINT</h2>',
         f"<p><b>{total}</b> nouveauté(s) sur {len(groupes)} source(s).</p>",
-        '<p style="font-size:12px;color:#555">Légende : 🇧🇪 Belgique/Wallonie · 🎯 vos mots-clés · '
+        '<p style="font-size:12px;color:#555">Légende : 🇧🇪 Belgique · 🎯 vos mots-clés · '
         "🔥 CVE utilisée par des ransomwares</p>",
     ]
     if erreurs:
@@ -271,7 +271,7 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str]) -> str:
         parties.append("</ul>")
     parties.append(
         '<hr><p style="font-size:12px;color:#777">'
-        "Généré automatiquement par NourSECBot via GitHub Actions.</p></body></html>"
+        "Généré automatiquement par Nours_SEC_bot.</p></body></html>"
     )
     return "\n".join(parties)
  

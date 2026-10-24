@@ -281,9 +281,9 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str]) -> str:
     total = sum(len(v) for v in groupes.values())
     parties = [
         '<html><body style="font-family:Arial,sans-serif;color:#333;line-height:1.5">',
-        '<h2 style="color:#d9534f;border-bottom:2px solid #d9534f">🛡️ Veille cybersécurité & OSINT</h2>',
+        '<h2 style="color:#d9534f;border-bottom:2px solid #d9534f">🛡️ Cybersecurity Monitoring & OSINT by Nous_Sec_bot</h2>',
         f"<p><b>{total}</b> nouveauté(s) sur {len(groupes)} source(s).</p>",
-        '<p style="font-size:12px;color:#555">Légende : 🇧🇪 Belgique/Wallonie · 🎯 vos mots-clés · '
+        '<p style="font-size:12px;color:#555">Légende : 🇧🇪 Belgique/Europe/World · 🎯 vos mots-clés · '
         "🔥 CVE utilisée par des ransomwares</p>",
     ]
     if erreurs:

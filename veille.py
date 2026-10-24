@@ -59,14 +59,13 @@ USER_AGENT = (
 
 # Marquage prioritaire (🇧🇪 / 🎯) : correspondance sur mots entiers
 MOTS_CLES_BELGIQUE = [
-    "belgique", "belgium", "belge", "belges", "wallonie", "bruxelles",
-    "securitas", "ccb", "safeonweb",
+    "belgique", "belgium", "belge", "belges", "securitas", "ccb", "safeonweb",
 ]
 MOTS_CLES_CIBLES = [
     "exchange", "outlook", "office 365", "microsoft 365", "sharepoint",
     "vmware", "esxi", "citrix", "fortinet", "fortigate", "palo alto",
     "check point", "checkpoint", "ivanti", "sap", "oracle", "ibm", "node",
-    "vpn", "ransomware",
+    "vpn", "ransomware", "amag", "symmetry", "securitas"
     "voo", "ores",  # fournisseurs internet / réseau électrique locaux
 ]
 # Volontairement absents : "windows", "linux", "teams", "azure" (présents dans trop d'articles,
@@ -763,7 +762,7 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         )
     parties.append(
         '<hr><p style="font-size:12px;color:#777">'
-        "Généré automatiquement par NourSECBot via GitHub Actions.</p></body></html>"
+        "Généré automatiquement par NourSECBot.</p></body></html>"
     )
     return "\n".join(parties)
 

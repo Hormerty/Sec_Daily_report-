@@ -36,8 +36,8 @@ USER_AGENT = (
 )
 
 # Mots-clés pour le marquage prioritaire (🇧🇪 / 🎯)
-MOTS_CLES_BELGIQUE = ["belgique", "belgium", "belge", "wallonie", "ccb", "safeonweb"]
-MOTS_CLES_CIBLES = ["exchange", "outlook", "node", "ivanti", "vmware", "citrix", "vpn", "ransomware"]
+MOTS_CLES_BELGIQUE = ["belgique", "belgium", "belge", "securitas", "ccb", "safeonweb"]
+MOTS_CLES_CIBLES = ["exchange", "outlook", "node", "ivanti", "vmware", "citrix", "ibm", "vpn", "ransomware"]
 
 ORDRE_CATEGORIES = [
     "Alertes & vulnérabilités",

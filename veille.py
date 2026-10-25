@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """NourSECBot : veille cybersécurité & OSINT quotidienne par e-mail.
-
 Version corrigée : isolement des sources, variables d'environnement tolérantes,
 écriture atomique de l'état, cache KEV, EPSS en CSV et plafond d'e-mail.
 """
 from __future__ import annotations
-
 import csv
 import gzip
 import html
@@ -30,16 +28,12 @@ from email.utils import formatdate, make_msgid
 from pathlib import Path
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
-
 import feedparser
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger("noursecbot")
-
-
 def _env_int(nom: str, defaut: int, minimum: int = 1) -> int:
     """Lit un entier d'environnement sans jamais faire échouer le run."""
     brut = os.environ.get(nom, "").strip()
@@ -55,48 +49,45 @@ def _env_int(nom: str, defaut: int, minimum: int = 1) -> int:
                     nom, valeur, minimum, defaut)
         return defaut
     return valeur
-
-
 # --- Configuration -----------------------------------------------------------
 SEEN_FILE = "seen.json"          # liens déjà envoyés (commité dans le dépôt par le workflow)
 SEEN_MAX = 3000
 DB_FILE = "stats.db"             # statistiques historiques SQLite (commité aussi)
 DB_CONSERVATION_JOURS = 400
 KEV_CACHE_FILE = "kev_cache.json"  # dernier catalogue KEV réussi (secours hors ligne)
-
 MAX_ARTICLES_EMAIL = _env_int("MAX_ARTICLES_EMAIL", 120, 20)
 MAX_OCTETS_EMAIL = 70_000        # HTML + texte bruts ; l'encodage base64 ajoute ~33 %
-
-FENETRE_HEURES = _env_int("FENETRE_HEURES", 36, 1)
-CISA_JOURS = _env_int("CISA_JOURS", 7, 1)  # 7 : tolère des jours sautés (seen.json évite les doublons)
+FENETRE_HEURES = _env_int("FENETRE_HEURES", 48, 1)  # 48 h : rapport glissant sur 2 jours
+CISA_JOURS = _env_int("CISA_JOURS", 2, 1)  # 2 : KEV ajoutées sur les 2 derniers jours
 MAX_PAR_SOURCE = 15
 MAX_CISA = 25
 TIMEOUT = 15
-
 try:
     TZ = ZoneInfo(os.environ.get("TZ", "Europe/Brussels"))
 except Exception:  # noqa: BLE001 - tzdata absent sur certaines installations Windows
     log.warning("Fuseau %r indisponible : UTC utilisé", os.environ.get("TZ", "Europe/Brussels"))
     TZ = timezone.utc
-
 # Priorités du jour
 PRIORITES_N = 5
 PRIORITES_MAX_KEV = 3            # au plus 3 places sur 5 pour les entrées CISA KEV
 KEV_TOUJOURS_CRITIQUE = os.environ.get("KEV_TOUJOURS_CRITIQUE", "0").strip().lower() in {
     "1", "true", "yes", "oui", "on",
 }
-
+# Rapport glissant : par défaut, on ne filtre plus les liens déjà envoyés.
+# Chaque exécution couvre les FENETRE_HEURES dernières heures, même si les
+# articles étaient déjà dans le mail de la veille.
+IGNORER_DEJA_VUS = os.environ.get("IGNORER_DEJA_VUS", "1").strip().lower() in {
+    "1", "true", "yes", "oui", "on",
+}
 # Section « Toujours d'actualité » et classement des fournisseurs
 RAPPELS_N = 5
 RAPPELS_JOURS = 14               # CVE vues pour la 1re fois il y a 1 à 14 jours...
 RAPPELS_EPSS_MIN = 0.5           # ... avec EPSS >= 50 %, ou utilisées par des ransomwares
 FOURNISSEURS_N = 10
 FOURNISSEURS_JOURS = 30
-
 # Rempli par collecter_cisa_kev : le catalogue KEV complet sert au classement des fournisseurs
 # et à la synchronisation de la base.
 KEV_VULNS: list[dict] = []
-
 # Enrichissement (tout est optionnel : sans clé ou en cas d'erreur, le rapport part quand même)
 EPSS_URL = "https://api.first.org/data/v1/epss"
 EPSS_CSV_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
@@ -107,17 +98,14 @@ ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-5-5")
 RESUME_MAX_ARTICLES = 40
-
 # SMTP : Gmail par défaut, mais configurable pour un autre fournisseur.
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
 SMTP_SECURITE = os.environ.get("SMTP_SECURITE", "ssl").strip().lower()
 SMTP_PORT = _env_int("SMTP_PORT", 587 if SMTP_SECURITE == "starttls" else 465, 1)
-
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 )
-
 # Marquage prioritaire (🇧🇪 / 🎯) : correspondance sur mots entiers
 MOTS_CLES_BELGIQUE = [
     "belgique", "belgium", "belge", "belges", "securitas", "ccb", "safeonweb",
@@ -132,19 +120,13 @@ MOTS_CLES_CIBLES = [
 # Volontairement absents : "windows", "linux", "teams", "azure" (présents dans trop d'articles,
 # le marqueur 🎯 perdrait son sens), et "ransomware" (déjà pondéré par RE_RANSOM et signalé par 🔥 :
 # sinon chaque entrée Ransomware.live recevrait aussi 🎯 et un double comptage).
-
-
 def _motif(mots: list[str]) -> re.Pattern:
     return re.compile(r"\b(?:" + "|".join(re.escape(m) for m in mots) + r")\b", re.IGNORECASE)
-
-
 RE_BELGIQUE = _motif(MOTS_CLES_BELGIQUE)
 RE_CIBLES = _motif(MOTS_CLES_CIBLES)
-
 # --- Score de criticité --------------------------------------------------------
 SEUIL_CRITIQUE = 10    # 🔴
 SEUIL_IMPORTANT = 6    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
-
 # Identifiant CVE : au moins 4 chiffres à la fin (format officiel). Les médias écrivent parfois
 # le tiret avec un caractère typographique (‐ ‑ ‒ – — −) : on l'accepte et on le normalise.
 _TIRET = r"[-\u2010-\u2015\u2212]"
@@ -168,14 +150,11 @@ RE_CAMPAGNE = re.compile(
     r"campagne (?:active|en cours|massive)",
     re.IGNORECASE,
 )
-
 # Négation immédiate : « not exploited », « aucune exploitation », « pas de ransomware »...
 RE_NEGATION = re.compile(
     r"\b(?:not|no|never|aucun(?:e)?|pas|sans|non)\s+(?:\w+\s+){0,4}$",
     re.IGNORECASE,
 )
-
-
 def _positif(motif: re.Pattern, texte: str) -> bool:
     """Vrai si au moins une occurrence du motif n'est pas immédiatement niée."""
     for m in motif.finditer(texte):
@@ -183,16 +162,12 @@ def _positif(motif: re.Pattern, texte: str) -> bool:
         if not RE_NEGATION.search(avant):
             return True
     return False
-
-
 def pastille(score: int) -> str:
     if score >= SEUIL_CRITIQUE:
         return "🔴"
     if score >= SEUIL_IMPORTANT:
         return "🟠"
     return ""
-
-
 def calculer_criticite(texte: str) -> tuple[int, str]:
     score = 0
     if RE_CVE.search(texte):
@@ -210,8 +185,6 @@ def calculer_criticite(texte: str) -> tuple[int, str]:
     if RE_CIBLES.search(texte):
         score += 2
     return score, pastille(score)
-
-
 def bonus_enrichissement(epss: float | None, cvss: float | None) -> int:
     """Points ajoutés une fois EPSS (probabilité d'exploitation) et CVSS (gravité) connus."""
     bonus = 0
@@ -226,13 +199,9 @@ def bonus_enrichissement(epss: float | None, cvss: float | None) -> int:
         elif cvss >= 7.0:
             bonus += 1
     return bonus
-
-
 def extraire_cves(texte: str) -> set[str]:
     """CVE distinctes, normalisées (tiret ASCII, majuscules)."""
     return {RE_TIRETS_TYPO.sub("-", m).upper() for m in RE_CVE.findall(texte)}
-
-
 # --- Filtre de pertinence ------------------------------------------------------
 # Appliqué uniquement aux sources généralistes marquées "filtre": True dans SOURCES_RSS.
 # Volontairement LARGE (on préfère un article en trop qu'une faille ou une attaque manquée).
@@ -253,8 +222,6 @@ RE_FILTRE_MOTS = _motif([
     "apt", "rce", "xss", "sqli", "csrf", "ssrf", "mfa", "2fa", "ioc", "edr", "vpn",
     "cve", "cert", "cisa", "anssi", "nist", "patch", "patches", "worm", "wiper", "dos", "c2",
 ])
-
-
 def _texte_entree(entree) -> str:
     """Titre + résumé (sans HTML) + contenu + catégories de l'article."""
     morceaux = [entree.get("title") or "", entree.get("summary") or ""]
@@ -264,12 +231,8 @@ def _texte_entree(entree) -> str:
     morceaux += [t.get("term", "") for t in (entree.get("tags") or []) if hasattr(t, "get")]
     brut = " ".join(m for m in morceaux if m)
     return html.unescape(re.sub(r"<[^>]+>", " ", brut))[:20_000]
-
-
 def est_pertinent(texte: str) -> bool:
     return bool(RE_FILTRE_RACINES.search(texte) or RE_FILTRE_MOTS.search(texte))
-
-
 ALERTES = "Alertes & vulnérabilités"
 DARKWEB = "Dark web & ransomware"
 ACTUS = "Actualités & Médias"
@@ -278,7 +241,6 @@ BLOGS = "Blogs & OSINT"
 ORDRE_CATEGORIES = [ALERTES, DARKWEB, ACTUS, INTEL, BLOGS]
 SOURCE_RANSOMWARE_LIVE = "Ransomware.live"
 SOURCE_KEV = "CISA KEV"
-
 # Une source en erreur n'empêche pas le rapport : elle apparaît dans le bandeau jaune du mail.
 SOURCES_RSS = [
     # CERT & autorités
@@ -314,8 +276,6 @@ SOURCES_RSS = [
     {"nom": "NetworkChuck", "url": "https://networkchuck.com/feed/", "categorie": BLOGS},
     {"nom": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "categorie": BLOGS},
 ]
-
-
 @dataclass
 class Article:
     source: str
@@ -331,8 +291,6 @@ class Article:
     epss: float | None = None                          # probabilité d'exploitation (0 à 1)
     cvss: float | None = None                          # gravité technique (0 à 10)
     aussi: list = field(default_factory=list)          # autres sources qui parlent de la même CVE
-
-
 # --- Mémoire des articles déjà envoyés --------------------------------------
 def charger_deja_vus() -> list[str]:
     """Liste ORDONNÉE (du plus ancien au plus récent) : permet de tronquer proprement."""
@@ -344,8 +302,6 @@ def charger_deja_vus() -> list[str]:
         log.warning("seen.json illisible (%s) : on repart de zéro", exc)
         return []
     return [str(x) for x in data] if isinstance(data, list) else []
-
-
 def _ecrire_json_atomique(chemin: str | Path, donnees) -> bool:
     """Écrit un JSON via un fichier temporaire puis os.replace (atomique)."""
     tmp = Path(f"{chemin}.tmp")
@@ -363,14 +319,10 @@ def _ecrire_json_atomique(chemin: str | Path, donnees) -> bool:
         except OSError:
             pass
         return False
-
-
 def sauvegarder_deja_vus(anciens: list[str], nouveaux: list[str]) -> None:
     connus = set(anciens)
     liste = anciens + [lien for lien in nouveaux if lien not in connus]
     _ecrire_json_atomique(SEEN_FILE, liste[-SEEN_MAX:])
-
-
 # --- Statistiques historiques (SQLite) --------------------------------------
 def ouvrir_db() -> sqlite3.Connection | None:
     try:
@@ -398,8 +350,6 @@ def ouvrir_db() -> sqlite3.Connection | None:
     except sqlite3.Error as exc:
         log.warning("Base de statistiques indisponible (%s) : rapport envoyé sans historique", exc)
         return None
-
-
 def charger_cache_cvss(conn: sqlite3.Connection | None) -> dict[str, float]:
     """CVSS déjà connus : évite de ré-interroger le NVD (limité en débit)."""
     if conn is None:
@@ -408,8 +358,6 @@ def charger_cache_cvss(conn: sqlite3.Connection | None) -> dict[str, float]:
         return {c: float(s) for c, s in conn.execute("SELECT cve, cvss FROM cves WHERE cvss IS NOT NULL")}
     except sqlite3.Error:
         return {}
-
-
 def enregistrer(conn: sqlite3.Connection | None, groupes: dict[str, list[Article]],
                 infos: dict[str, dict], aujourdhui: str) -> None:
     if conn is None:
@@ -443,11 +391,8 @@ def enregistrer(conn: sqlite3.Connection | None, groupes: dict[str, list[Article
         conn.commit()
     except (sqlite3.Error, ValueError) as exc:
         log.warning("Enregistrement des statistiques impossible : %s", exc)
-
-
 def synchroniser_kev(conn: sqlite3.Connection | None, vulns: list[dict]) -> None:
     """Aligne la base sur le catalogue KEV complet.
-
     Une CVE vue d'abord dans un article puis entrée au KEV est marquée kev=1 (et ransomware=1 si le
     CISA le signale), même si l'entrée KEV elle-même n'a pas été affichée."""
     if conn is None or not vulns:
@@ -461,13 +406,10 @@ def synchroniser_kev(conn: sqlite3.Connection | None, vulns: list[dict]) -> None
         conn.commit()
     except sqlite3.Error as exc:
         log.warning("Synchronisation KEV impossible : %s", exc)
-
-
 def rappels_kev(conn: sqlite3.Connection | None, session: requests.Session, aujourdhui: str,
                 deja_affichees: set[str], n: int = RAPPELS_N, jours_max: int = RAPPELS_JOURS,
                 epss_min: float = RAPPELS_EPSS_MIN) -> list[dict]:
     """CVE du KEV vues pour la 1re fois il y a 1 à `jours_max` jours et toujours dangereuses.
-
     « Dangereuse » = EPSS du jour >= epss_min, ou utilisée par des ransomwares. L'EPSS est
     re-téléchargé (il évolue chaque jour). `jours` = ancienneté de la 1re mention dans CE rapport."""
     if conn is None:
@@ -498,8 +440,6 @@ def rappels_kev(conn: sqlite3.Connection | None, session: requests.Session, aujo
         })
     rappels.sort(key=lambda r: (r["ransomware"], r["epss"] or 0.0), reverse=True)
     return rappels[:n]
-
-
 def statistiques(conn: sqlite3.Connection | None, aujourdhui: str) -> dict | None:
     """Les 7 jours précédant ce rapport, comparés aux 7 jours d'avant (le jour courant est exclu)."""
     if conn is None:
@@ -508,7 +448,6 @@ def statistiques(conn: sqlite3.Connection | None, aujourdhui: str) -> dict | Non
         auj = datetime.fromisoformat(aujourdhui).date()
         d7 = (auj - timedelta(days=7)).isoformat()
         d14 = (auj - timedelta(days=14)).isoformat()
-
         def periode(debut: str, fin: str) -> dict:
             total, crit, imp = conn.execute(
                 "SELECT COUNT(*), COALESCE(SUM(criticite='🔴'),0), COALESCE(SUM(criticite='🟠'),0) "
@@ -516,7 +455,6 @@ def statistiques(conn: sqlite3.Connection | None, aujourdhui: str) -> dict | Non
             cves = conn.execute(
                 "SELECT COUNT(*) FROM cves WHERE vue_le >= ? AND vue_le < ?", (debut, fin)).fetchone()[0]
             return {"articles": total, "critiques": crit, "importants": imp, "cves": cves}
-
         jours = conn.execute(
             "SELECT COUNT(DISTINCT vu_le) FROM articles WHERE vu_le >= ? AND vu_le < ?",
             (d7, aujourdhui)).fetchone()[0]
@@ -529,8 +467,6 @@ def statistiques(conn: sqlite3.Connection | None, aujourdhui: str) -> dict | Non
     except (sqlite3.Error, ValueError) as exc:
         log.warning("Statistiques indisponibles : %s", exc)
         return None
-
-
 def ligne_tendance(stats: dict) -> str:
     c, p = stats["courant"], stats["precedent"]
     evol = ""
@@ -540,8 +476,6 @@ def ligne_tendance(stats: dict) -> str:
     top = ", ".join(f"{s} ({n})" for s, n in stats["top"])
     return (f"{c['articles']} articles{evol} · 🔴 {c['critiques']} · 🟠 {c['importants']} · "
             f"{c['cves']} nouvelles CVE · sources les plus actives : {top}")
-
-
 # --- Collecte ----------------------------------------------------------------
 def creer_session() -> requests.Session:
     session = requests.Session()
@@ -556,19 +490,13 @@ def creer_session() -> requests.Session:
     session.mount("http://", HTTPAdapter(max_retries=retry))
     session.headers.update({"User-Agent": USER_AGENT})
     return session
-
-
 _local = threading.local()
-
-
 def session_thread() -> requests.Session:
     """Une session par thread : requests ne garantit pas le partage d'une Session."""
     session = getattr(_local, "session", None)
     if session is None:
         session = _local.session = creer_session()
     return session
-
-
 def analyser_tags(texte: str) -> str:
     marques = []
     if RE_BELGIQUE.search(texte):
@@ -578,8 +506,6 @@ def analyser_tags(texte: str) -> str:
     if _positif(RE_CAMPAGNE, texte):
         marques.append("⚡")
     return " ".join(marques)
-
-
 def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
                   deja_vus: set[str]) -> tuple[list[Article], str | None]:
     """Retourne (articles, erreur_ou_None)."""
@@ -589,16 +515,13 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
     except requests.RequestException as exc:
         log.warning("%s : %s", source["nom"], exc)
         return [], f"{source['nom']} : {exc}"
-
     try:
         flux = feedparser.parse(reponse.content)
     except Exception as exc:  # noqa: BLE001 - un flux exotique ne doit pas tuer la source
         log.warning("%s : flux illisible (%s)", source["nom"], exc)
         return [], f"{source['nom']} : flux illisible ({type(exc).__name__})"
-
     if flux.bozo and not flux.entries:
         return [], f"{source['nom']} : flux illisible"
-
     articles = []
     filtre = source.get("filtre", False)
     ecartes = 0
@@ -620,7 +543,7 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
         lien = urljoin(source["url"], brut_lien)
         if not lien.startswith(("http://", "https://")):
             continue  # refuse javascript:, data:, etc. : le lien finit dans un href du mail
-        if lien in deja_vus:
+        if not IGNORER_DEJA_VUS and lien in deja_vus:
             continue
         titre = (entree.get("title") or "Article sans titre").strip()[:300]
         texte = _texte_entree(entree)
@@ -647,8 +570,6 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
     log.info("%s : %d nouveau(x)%s", source["nom"], len(articles),
              f", {ecartes} écarté(s) hors-sujet" if ecartes else "")
     return articles[: source.get("max", MAX_PAR_SOURCE)], None
-
-
 def collecter_source(source: dict, depuis: datetime, deja_vus: set[str]) -> tuple[list[Article], str | None]:
     """Frontière de fiabilité : aucune exception inattendue ne sort d'une source."""
     try:
@@ -656,8 +577,6 @@ def collecter_source(source: dict, depuis: datetime, deja_vus: set[str]) -> tupl
     except Exception as exc:  # noqa: BLE001
         log.exception("Source %s : échec inattendu", source["nom"])
         return [], f"{source['nom']} : erreur inattendue ({type(exc).__name__})"
-
-
 # --- Cache du catalogue KEV ---------------------------------------------------
 def _lire_cache_kev() -> list[dict]:
     try:
@@ -668,8 +587,6 @@ def _lire_cache_kev() -> list[dict]:
         return []
     vulns = data.get("vulnerabilities", [])
     return [v for v in vulns if isinstance(v, dict)] if isinstance(vulns, list) else []
-
-
 def _ecrire_cache_kev(vulns: list[dict]) -> None:
     garder = ("cveID", "dateAdded", "vendorProject", "product", "shortDescription",
               "knownRansomwareCampaignUse", "requiredAction", "dueDate", "cwes")
@@ -678,8 +595,6 @@ def _ecrire_cache_kev(vulns: list[dict]) -> None:
         KEV_CACHE_FILE,
         {"fetched_at": datetime.now(timezone.utc).isoformat(), "vulnerabilities": reduit},
     )
-
-
 def collecter_cisa_kev(session: requests.Session, deja_vus: set[str]):
     url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
     try:
@@ -699,7 +614,6 @@ def collecter_cisa_kev(session: requests.Session, deja_vus: set[str]):
     else:
         if vulns:  # ne jamais écraser un cache valide avec une réponse vide
             _ecrire_cache_kev(vulns)
-
     KEV_VULNS[:] = vulns  # catalogue complet : classement des fournisseurs + synchronisation de la base
     seuil = (datetime.now(timezone.utc) - timedelta(days=CISA_JOURS)).date()
     articles = []
@@ -714,7 +628,7 @@ def collecter_cisa_kev(session: requests.Session, deja_vus: set[str]):
             continue
         cve = str(v.get("cveID") or "CVE inconnue")
         lien = f"https://nvd.nist.gov/vuln/detail/{cve}"
-        if lien in deja_vus:
+        if not IGNORER_DEJA_VUS and lien in deja_vus:
             continue
         titre = f"{cve} : {v.get('vendorProject', '?')} {v.get('product', '?')}"[:300]
         description = v.get("shortDescription") or ""
@@ -743,19 +657,15 @@ def collecter_cisa_kev(session: requests.Session, deja_vus: set[str]):
     articles.sort(key=lambda a: (a.score, a.date), reverse=True)
     log.info("CISA KEV : %d nouvelle(s)", len(articles))
     return articles[:MAX_CISA], None
-
-
 def top_fournisseurs(vulns: list[dict], aujourdhui: str, jours: int = FOURNISSEURS_JOURS,
                      n: int = FOURNISSEURS_N) -> list[dict]:
     """Fournisseurs avec le plus de failles ajoutées au KEV sur `jours` jours.
-
     Compare au classement des `jours` précédents : ▲ (monte), ▼ (descend), = (stable), 🆕 (absent avant).
     Attention : ce sont des vulnérabilités EXPLOITÉES (entrées KEV), pas un nombre d'attaques."""
     auj = datetime.fromisoformat(aujourdhui).date()
     fin = auj.isoformat()
     debut = (auj - timedelta(days=jours)).isoformat()
     debut_prec = (auj - timedelta(days=2 * jours)).isoformat()
-
     noms: dict[str, str] = {}          # clé insensible à la casse -> graphie d'affichage
     actuel: Counter = Counter()
     precedent: Counter = Counter()
@@ -772,10 +682,8 @@ def top_fournisseurs(vulns: list[dict], aujourdhui: str, jours: int = FOURNISSEU
         else:
             continue
         noms.setdefault(cle, nom)
-
     def classer(compteur: Counter) -> list[str]:
         return [k for k, _ in sorted(compteur.items(), key=lambda kv: (-kv[1], noms[kv[0]].casefold()))]
-
     rang_prec = {k: i for i, k in enumerate(classer(precedent), 1)}
     resultat = []
     for rang, cle in enumerate(classer(actuel)[:n], 1):
@@ -790,12 +698,8 @@ def top_fournisseurs(vulns: list[dict], aujourdhui: str, jours: int = FOURNISSEU
         resultat.append({"fournisseur": noms[cle], "n": actuel[cle],
                          "precedent": precedent.get(cle, 0), "fleche": fleche})
     return resultat
-
-
 # --- Enrichissement : EPSS (FIRST) et CVSS (NVD) -----------------------------
 _EPSS_CACHE: dict[str, float] | None = None
-
-
 def _charger_epss_bulk(session: requests.Session) -> dict[str, float]:
     """Télécharge le CSV quotidien EPSS (une requête, tous les scores)."""
     try:
@@ -813,11 +717,8 @@ def _charger_epss_bulk(session: requests.Session) -> dict[str, float]:
     except (requests.RequestException, OSError, ValueError, KeyError) as exc:
         log.warning("EPSS (CSV) indisponible : %s", exc)
         return {}
-
-
 def recuperer_epss(session: requests.Session, cves: list[str]) -> dict[str, float]:
     """EPSS = probabilité (0 à 1) qu'une CVE soit exploitée dans les 30 prochains jours.
-
     Utilise le CSV quotidien (usage recommandé pour du bulk), avec repli sur l'API CVE par CVE.
     """
     global _EPSS_CACHE
@@ -827,7 +728,6 @@ def recuperer_epss(session: requests.Session, cves: list[str]) -> dict[str, floa
         resultat = {c: _EPSS_CACHE[c] for c in cves if c in _EPSS_CACHE}
         log.info("EPSS : %d/%d CVE renseignée(s) (CSV)", len(resultat), len(cves))
         return resultat
-
     resultat = {}
     for i in range(0, len(cves), 50):
         lot = cves[i:i + 50]
@@ -844,8 +744,6 @@ def recuperer_epss(session: requests.Session, cves: list[str]) -> dict[str, floa
             break
     log.info("EPSS : %d/%d CVE renseignée(s) (API)", len(resultat), len(cves))
     return resultat
-
-
 def extraire_cvss(cve_json: dict) -> float | None:
     metrics = cve_json.get("metrics") or {}
     for cle in ("cvssMetricV31", "cvssMetricV40", "cvssMetricV30", "cvssMetricV2"):
@@ -854,8 +752,6 @@ def extraire_cvss(cve_json: dict) -> float | None:
             if isinstance(score, (int, float)):
                 return float(score)
     return None
-
-
 def recuperer_cvss(session: requests.Session, cve: str) -> tuple[float | None, bool]:
     """Retourne (score_ou_None, limite_de_debit_atteinte)."""
     headers = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
@@ -880,8 +776,6 @@ def recuperer_cvss(session: requests.Session, cve: str) -> tuple[float | None, b
     if not vulns:
         return None, False  # CVE trop récente, pas encore analysée par le NVD
     return extraire_cvss(vulns[0].get("cve", {})), False
-
-
 def enrichir(session: requests.Session, groupes: dict[str, list[Article]],
              cache_cvss: dict[str, float]) -> dict[str, dict]:
     """Ajoute EPSS/CVSS aux articles qui citent des CVE, puis recalcule score et pastille."""
@@ -890,7 +784,6 @@ def enrichir(session: requests.Session, groupes: dict[str, list[Article]],
         return {}
     toutes = sorted({c for a in articles for c in a.cves})
     epss = recuperer_epss(session, toutes)
-
     # CVSS : CVE des articles les plus dangereux d'abord, en respectant la limite de débit du NVD
     ordre: list[str] = []
     for a in sorted(articles, key=lambda x: x.score, reverse=True):
@@ -909,7 +802,6 @@ def enrichir(session: requests.Session, groupes: dict[str, list[Article]],
         if limite:
             break
     log.info("CVSS : %d/%d CVE renseignée(s) (cache inclus)", len(cvss), len(toutes))
-
     for a in articles:
         e_vals = [epss[c] for c in a.cves if c in epss]
         c_vals = [cvss[c] for c in a.cves if c in cvss]
@@ -922,8 +814,6 @@ def enrichir(session: requests.Session, groupes: dict[str, list[Article]],
     for liste in groupes.values():
         liste.sort(key=lambda a: (a.score, a.date), reverse=True)
     return {c: {"epss": epss.get(c), "cvss": cvss.get(c)} for c in toutes}
-
-
 # --- Résumé IA (API Claude) --------------------------------------------------
 CONSIGNE_RESUME = (
     "Tu es un analyste en cybersécurité. L'utilisateur te transmet, entre balises <donnees>, une liste "
@@ -934,8 +824,6 @@ CONSIGNE_RESUME = (
     "exposition, attaque en cours). Ne mentionne que ce qui figure dans les titres : n'invente ni "
     "détail, ni CVE, ni chiffre. Texte brut uniquement, une puce par ligne, chaque ligne commençant par « - »."
 )
-
-
 def generer_resume_ia(session: requests.Session, groupes: dict[str, list[Article]]) -> str | None:
     if not ANTHROPIC_API_KEY:
         log.info("ANTHROPIC_API_KEY absente : pas de résumé IA.")
@@ -974,13 +862,9 @@ def generer_resume_ia(session: requests.Session, groupes: dict[str, list[Article
         return None
     texte = "".join(b.get("text", "") for b in blocs if isinstance(b, dict) and b.get("type") == "text").strip()
     return texte[:2000] or None
-
-
 def _puces(texte: str) -> list[str]:
     lignes = [re.sub(r"^\s*(?:[-*•]\s*)", "", ligne).strip() for ligne in texte.splitlines()]
     return [ligne for ligne in lignes if ligne]
-
-
 # --- Rendu -------------------------------------------------------------------
 def compter(groupes: dict[str, list[Article]]) -> dict:
     articles = [a for v in groupes.values() for a in v]
@@ -996,8 +880,6 @@ def compter(groupes: dict[str, list[Article]]) -> dict:
         "sources_actives": len(groupes),
         "sources_total": len(SOURCES_RSS) + 1,
     }
-
-
 def priorites(groupes: dict[str, list[Article]], n: int = PRIORITES_N,
               max_kev: int = PRIORITES_MAX_KEV) -> list[Article]:
     """Importants/critiques uniquement, triés par score ; les entrées KEV sont plafonnées."""
@@ -1014,12 +896,9 @@ def priorites(groupes: dict[str, list[Article]], n: int = PRIORITES_N,
         if len(choisis) >= n:
             break
     return choisis
-
-
 def limiter_pour_email(groupes: dict[str, list[Article]],
                        max_total: int | None = None) -> dict[str, list[Article]]:
     """Réduit le nombre d'articles affichés pour rester sous la limite de Gmail.
-
     Distribution circulaire (rang 0 de chaque source, puis rang 1...) : on garde
     les meilleurs scores de chaque source plutôt que de vider les dernières catégories.
     """
@@ -1043,29 +922,19 @@ def limiter_pour_email(groupes: dict[str, list[Article]],
         rang += 1
     log.info("E-mail : %d/%d articles affichés (plafond %d)", max_total, total, max_total)
     return {source: articles for source, articles in resultat.items() if articles}
-
-
 def _fmt_epss(epss: float | None) -> str:
     if epss is None:
         return "EPSS n/d"
     return "EPSS <1 %" if epss < 0.01 else f"EPSS {epss * 100:.0f} %"
-
-
 def _ligne_rappel(r: dict) -> str:
     morceaux = [f"vue depuis {r['jours']} j", _fmt_epss(r["epss"]), "toujours dans la KEV"]
     if r["ransomware"]:
         morceaux.append("🔥 ransomware")
     return " · ".join(morceaux)
-
-
 def _ligne_fournisseur(f: dict) -> str:
     return f"{f['fournisseur']} ({f['n']}) {f['fleche']} · {FOURNISSEURS_JOURS} j précédents : {f['precedent']}"
-
-
 def _marques(a: Article) -> str:
     return " ".join(x for x in (a.criticite, a.tags) if x)
-
-
 def _metriques(a: Article) -> str:
     morceaux = []
     if a.epss is not None:
@@ -1073,8 +942,6 @@ def _metriques(a: Article) -> str:
     if a.cvss is not None:
         morceaux.append(f"CVSS {a.cvss:.1f}")
     return " · ".join(morceaux)
-
-
 def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
                 resume_ia: str | None = None, stats: dict | None = None,
                 rappels: list[dict] | None = None, fournisseurs: list[dict] | None = None,
@@ -1090,7 +957,7 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         '<body style="font-family:Arial,sans-serif;color:#333;line-height:1.5;max-width:900px;margin:auto">',
         '<h1 style="color:#d9534f;border-bottom:2px solid #d9534f">🛡️ Veille cybersécurité & OSINT</h1>',
         '<div style="background:#f8f9fa;padding:10px;border-radius:5px;border:1px solid #ddd">'
-        f"<b>📊 Tableau de bord</b><br>{c['total']} nouveauté(s) · "
+        f"<b>📊 Tableau de bord</b><br>{c['total']} article(s) · fenêtre {FENETRE_HEURES} h · "
         f"{c['sources_actives']}/{c['sources_total']} sources actives · {c['cves']} CVE distincte(s)<br>"
         f"🔴 Critiques : {c['critiques']} · 🟠 Importants : {c['importants']}<br>"
         f"🔥 CVE exploitées par des ransomwares : {c['cves_ransomware']} · "
@@ -1113,7 +980,6 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
             + e(" ; ".join(erreurs))
             + "</p>"
         )
-
     if resume_ia:
         parties.append('<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:24px">🤖 Résumé du jour</h2><ul>')
         parties.extend(f"<li>{e(p)}</li>" for p in _puces(resume_ia))
@@ -1121,7 +987,6 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
             '</ul><p style="font-size:11px;color:#888">Résumé généré par IA à partir des titres ci-dessous : '
             "à vérifier avant toute décision.</p>"
         )
-
     parties.append('<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:24px">🚨 Priorités du jour</h2>')
     top = priorites(groupes)
     if top:
@@ -1137,7 +1002,6 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         parties.append("</ul>")
     else:
         parties.append("<p>✅ Rien de critique ni d'important aujourd'hui.</p>")
-
     if rappels:
         parties.append(
             '<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:24px">'
@@ -1150,7 +1014,6 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
                 f'target="_blank" rel="noopener noreferrer">{cve}</a> · {e(_ligne_rappel(r))}</li>'
             )
         parties.append("</ul>")
-
     derniere_cat = None
     for source, articles in affiches.items():
         if articles[0].categorie != derniere_cat:
@@ -1175,7 +1038,6 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
                 f'<a href="{e(a.lien, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.titre)}</a>{metr}{detail}{aussi}</li>'
             )
         parties.append("</ul>")
-
     if fournisseurs:
         items = "".join(f"<li>{e(_ligne_fournisseur(f))}</li>" for f in fournisseurs)
         parties.append(
@@ -1194,8 +1056,6 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         "Généré automatiquement par NourSECBot.</p></body></html>"
     )
     return "\n".join(parties)
-
-
 def rendre_texte(groupes: dict[str, list[Article]], erreurs: list[str],
                  resume_ia: str | None = None, stats: dict | None = None,
                  rappels: list[dict] | None = None, fournisseurs: list[dict] | None = None,
@@ -1204,7 +1064,8 @@ def rendre_texte(groupes: dict[str, list[Article]], erreurs: list[str],
     affiches = limiter_pour_email(groupes, max_articles)
     nb_affiches = sum(len(v) for v in affiches.values())
     lignes = [
-        f"{c['total']} nouveauté(s) · {c['sources_actives']}/{c['sources_total']} sources actives · "
+        f"{c['total']} article(s) sur {FENETRE_HEURES} h · "
+        f"{c['sources_actives']}/{c['sources_total']} sources actives · "
         f"{c['cves']} CVE · critiques : {c['critiques']} · "
         f"importants : {c['importants']} · CVE ransomware : {c['cves_ransomware']} · "
         f"cyberattaques recensées : {c['attaques']}"
@@ -1248,8 +1109,6 @@ def rendre_texte(groupes: dict[str, list[Article]], erreurs: list[str],
     if stats:
         lignes.append("\n##### TENDANCE (7 jours précédents) #####\n" + ligne_tendance(stats))
     return "\n".join(lignes)
-
-
 # --- Envoi -------------------------------------------------------------------
 def verifier_config() -> tuple[str, str, str]:
     manquantes = [k for k in ("EMAIL_USER", "EMAIL_PASSWORD", "RECIPIENT_EMAIL") if not os.environ.get(k)]
@@ -1261,8 +1120,6 @@ def verifier_config() -> tuple[str, str, str]:
         if "\r" in valeur or "\n" in valeur:
             raise SystemExit("Adresse e-mail invalide : retour à la ligne interdit")
     return expediteur, os.environ["EMAIL_PASSWORD"], destinataire
-
-
 def envoyer_email(config: tuple[str, str, str], sujet: str, contenu_html: str, contenu_texte: str) -> None:
     expediteur, mot_de_passe, destinataire = config
     msg = MIMEMultipart("alternative")
@@ -1271,10 +1128,8 @@ def envoyer_email(config: tuple[str, str, str], sujet: str, contenu_html: str, c
     msg["Message-ID"] = make_msgid(domain="noursecbot.local")
     msg.attach(MIMEText(contenu_texte, "plain", "utf-8"))
     msg.attach(MIMEText(contenu_html, "html", "utf-8"))  # le HTML en dernier = version préférée
-
     if SMTP_SECURITE not in ("ssl", "starttls"):
         log.warning("SMTP_SECURITE=%r inconnu : SSL utilisé", SMTP_SECURITE)
-
     contexte = ssl.create_default_context()
     derniere: Exception | None = None
     for tentative in range(1, 4):
@@ -1297,12 +1152,9 @@ def envoyer_email(config: tuple[str, str, str], sujet: str, contenu_html: str, c
                 time.sleep(5 * tentative)
     if derniere is not None:
         raise derniere
-
-
 # --- Programme principal -----------------------------------------------------
 def regrouper(resultats) -> tuple[dict[str, list[Article]], list[str]]:
     """Déduplique (liens et CVE) et regroupe par source. Retourne (groupes, liens_à_mémoriser).
-
     Un article dont TOUTES les CVE ont déjà été montrées n'est pas affiché de nouveau : sa source est
     ajoutée à « Aussi couvert par » sur l'article conservé. Son lien est quand même mémorisé
     (sinon il reviendrait demain), car l'information a bien été livrée.
@@ -1311,7 +1163,6 @@ def regrouper(resultats) -> tuple[dict[str, list[Article]], list[str]]:
     nouveaux: list[str] = []
     vus_liens: set[str] = set()
     cve_vers_article: dict[str, Article] = {}
-
     for articles, _ in resultats:
         uniques = []
         for a in articles:
@@ -1336,8 +1187,6 @@ def regrouper(resultats) -> tuple[dict[str, list[Article]], list[str]]:
         if uniques:
             groupes[uniques[0].source] = uniques
     return groupes, nouveaux
-
-
 def main() -> int:
     config = verifier_config()  # échoue tout de suite si un secret manque
     maintenant = datetime.now(TZ)
@@ -1347,7 +1196,6 @@ def main() -> int:
     depuis = datetime.now(timezone.utc) - timedelta(hours=FENETRE_HEURES)
     session = creer_session()
     conn = ouvrir_db()
-
     try:
         try:
             resultats = [collecter_cisa_kev(session, deja_vus)]
@@ -1357,11 +1205,9 @@ def main() -> int:
         with ThreadPoolExecutor(max_workers=8) as pool:
             resultats += list(pool.map(
                 lambda s: collecter_source(s, depuis, deja_vus), SOURCES_RSS))
-
         erreurs = [err for _, err in resultats if err]
         groupes, nouveaux = regrouper(resultats)
         synchroniser_kev(conn, KEV_VULNS)
-
         # Enrichissements optionnels : une panne ne doit jamais empêcher l'envoi du rapport
         infos: dict[str, dict] = {}
         try:
@@ -1369,7 +1215,6 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             log.warning("Enrichissement EPSS/CVSS ignoré : %s", exc)
         groupes = dict(sorted(groupes.items(), key=lambda kv: ORDRE_CATEGORIES.index(kv[1][0].categorie)))
-
         rappels: list[dict] = []
         fournisseurs: list[dict] = []
         try:
@@ -1378,14 +1223,12 @@ def main() -> int:
             fournisseurs = top_fournisseurs(KEV_VULNS, aujourdhui)
         except Exception as exc:  # noqa: BLE001
             log.warning("Rappels / classement des fournisseurs ignorés : %s", exc)
-
         resume_ia = None
         try:
             resume_ia = generer_resume_ia(session, groupes)
         except Exception as exc:  # noqa: BLE001
             log.warning("Résumé IA ignoré : %s", exc)
         stats = statistiques(conn, aujourdhui)
-
         # Journal des scores : sert à ajuster les pondérations au fil des jours
         for liste in groupes.values():
             for a in liste:
@@ -1393,18 +1236,15 @@ def main() -> int:
                     m = _metriques(a)
                     log.info("  score %2d %-2s [%s] %s%s", a.score, a.criticite, a.source,
                              a.titre[:90], f" ({m})" if m else "")
-
         if not groupes and not erreurs:
             log.info("Rien de nouveau : pas d'e-mail envoyé.")
             return 0
-
         sujet = f"🛡️ Veille cybersécurité du {maintenant:%d/%m/%Y}"
         totaux = compter(groupes)
         if totaux["critiques"]:
             sujet += f" · 🔴 {totaux['critiques']} critique(s)"
         if totaux["campagnes"]:
             sujet += f" · ⚡ {totaux['campagnes']} campagne(s)"
-
         limite_email = MAX_ARTICLES_EMAIL
         html_rapport = rendre_html(groupes, erreurs, resume_ia, stats, rappels, fournisseurs,
                                    max_articles=limite_email)
@@ -1428,13 +1268,10 @@ def main() -> int:
         if taille_html + taille_texte > MAX_OCTETS_EMAIL:
             log.warning("Rapport de %d Ko : risque de troncature Gmail",
                         (taille_html + taille_texte) // 1000)
-
         envoyer_email(config, sujet, html_rapport, texte_rapport)
-
         # On ne mémorise qu'APRÈS un envoi réussi : si l'envoi échoue, rien n'est perdu.
         sauvegarder_deja_vus(anciens, nouveaux)
         enregistrer(conn, groupes, infos, aujourdhui)
-
         # Code de sortie non nul si la veille est trop dégradée : le run apparaît en rouge.
         total_sources = len(SOURCES_RSS) + 1
         sources_ok = total_sources - len(erreurs)
@@ -1451,7 +1288,5 @@ def main() -> int:
     finally:
         if conn is not None:
             conn.close()
-
-
 if __name__ == "__main__":
     sys.exit(main())

@@ -108,7 +108,7 @@ USER_AGENT = (
 )
 # Marquage prioritaire (🇧🇪 / 🎯) : correspondance sur mots entiers
 MOTS_CLES_BELGIQUE = [
-    "belgique", "belgium", "belge", "belges", "securitas", "ccb", "safeonweb",
+    "belgique", "belgium", "securitas", "ccb", "safeonweb",
 ]
 MOTS_CLES_CIBLES = [
     "exchange", "outlook", "office 365", "microsoft 365", "sharepoint",
@@ -963,7 +963,7 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         f"🔥 CVE exploitées par des ransomwares : {c['cves_ransomware']} · "
         f"🏴‍☠️ Cyberattaques recensées (Ransomware.live) : {c['attaques']} · "
         f"⚡ Articles signalant une campagne : {c['campagnes']}</div>",
-        '<p style="font-size:12px;color:#555">Légende : 🔴 critique · 🟠 important · 🇧🇪 Belgique/Wallonie · '
+        '<p style="font-size:12px;color:#555">Légende : 🔴 critique · 🟠 important · 🇧🇪 Belgium · '
         "🎯 vos mots-clés · 🔥 CVE utilisée par des ransomwares · ⚡ campagne active · "
         "EPSS = probabilité d'exploitation (FIRST) · CVSS = gravité technique (NVD)</p>",
     ]

@@ -148,13 +148,48 @@ MOTS_CLES_MENACES = [
     "aitm", "evilginx", "token theft", "session hijacking", "mfa fatigue",
     "pass-the-cookie", "golden ticket", "kerberoasting",
 ]
-# Groupes APT / cybercriminels suivis par CTI Radar et les flux threat intel.
-MOTS_CLES_ACTEURS = [
-    "apt28", "apt29", "apt41", "volt typhoon", "salt typhoon",
-    "sandworm", "turla", "lazarus", "kimsuky", "charming kitten",
-    "muddywater", "scattered spider", "lockbit", "akira", "clop",
-    "alphv", "blackcat", "qilin", "medusa", "fin7", "revil",
-]
+# Groupes APT / cybercriminels : nom canonique -> alias utilisés par les médias.
+ACTEURS_MAP = {
+    "APT41": ["apt41", "double dragon", "winnti", "barium", "bronze atlas"],
+    "APT10": ["apt10", "stone panda", "menupass", "cloud hopper"],
+    "APT40": ["apt40", "bronze mohawk", "gadolinium", "temp.periscope"],
+    "Volt Typhoon": ["volt typhoon", "bronze silhouette", "vanguard panda"],
+    "Salt Typhoon": ["salt typhoon", "ghost emperor", "famoussparrow"],
+    "APT31": ["apt31", "zirconium", "judgment panda", "hurricane panda"],
+    "APT29": ["apt29", "cozy bear", "midnight blizzard", "nobelium", "the dukes"],
+    "APT28": ["apt28", "fancy bear", "forest blizzard", "sofacy", "strontium"],
+    "Sandworm": ["sandworm", "seashell blizzard", "voodoo bear", "notpetya"],
+    "Turla": ["turla", "uroburos", "venomous bear", "waterbug", "snake malware"],
+    "Killnet": ["killnet", "kill net"],
+    "Lazarus": ["lazarus", "hidden cobra", "apt38", "zinc"],
+    "Kimsuky": ["kimsuky", "thallium", "velvet chollima", "black banshee"],
+    "ScarCruft": ["scarcruft", "apt37", "reaper", "group123"],
+    "APT33": ["apt33", "elfin", "refined kitten", "holmium"],
+    "APT34": ["apt34", "oilrig", "helix kitten", "crambus"],
+    "Charming Kitten": ["charming kitten", "apt35", "mint sandstorm", "phosphorus"],
+    "MuddyWater": ["muddywater", "mango sandstorm", "mercury", "static kitten"],
+    "LockBit": ["lockbit", "lockbit 3", "lockbit black"],
+    "ALPHV/BlackCat": ["alphv", "blackcat", "noberus"],
+    "Cl0p": ["cl0p", "clop", "ta505"],
+    "REvil": ["revil", "sodinokibi", "gold southfield"],
+    "Scattered Spider": ["scattered spider", "unc3944", "0ktapus", "muddled libra"],
+    "FIN7": ["fin7", "carbanak", "navigator group"],
+}
+MOTS_CLES_ACTEURS = [alias for aliases in ACTEURS_MAP.values() for alias in aliases]
+# MITRE ATT&CK : identifiant -> termes de détection. Sert à l'affichage (et non au score,
+# pour ne pas doubler avec MOTS_CLES_MENACES).
+TTP_MAP = {
+    "T1566": ["phishing", "spear-phishing", "spearphish", "hameçonnage"],
+    "T1190": ["exploit public-facing", "rce", "remote code execution", "sql injection", "sqli"],
+    "T1195": ["supply chain", "dependency confusion", "third-party"],
+    "T1078": ["credential stuffing", "password spray", "account takeover", "valid accounts"],
+    "T1003": ["mimikatz", "lsass", "credential dump", "ntlm hash"],
+    "T1055": ["process injection", "dll injection", "hollowing", "reflective"],
+    "T1071": ["cobalt strike", "beaconing", "command and control", "c2"],
+    "T1486": ["ransomware", "lockbit", "blackcat", "alphv", "clop", "rançongiciel"],
+    "T1498": ["ddos", "denial of service", "botnet attack"],
+    "T1485": ["wiper", "data destruction", "disk wipe", "destructive"],
+}
 # Volontairement absents : "windows", "linux", "teams", "azure" (présents dans trop d'articles,
 # le marqueur 🎯 perdrait son sens), et "ransomware" (déjà pondéré par RE_RANSOM et signalé par 🔥 :
 # sinon chaque entrée Ransomware.live recevrait aussi 🎯 et un double comptage).
@@ -164,6 +199,12 @@ RE_BELGIQUE = _motif(MOTS_CLES_BELGIQUE)
 RE_CIBLES = _motif(MOTS_CLES_CIBLES)
 RE_MENACES = _motif(MOTS_CLES_MENACES)
 RE_ACTEURS = _motif(MOTS_CLES_ACTEURS)
+RE_ACTEURS_MAP = {nom: _motif(alias) for nom, alias in ACTEURS_MAP.items()}
+RE_TTP_MAP = {tid: _motif(termes) for tid, termes in TTP_MAP.items()}
+def detecter_acteurs(texte: str) -> tuple[str, ...]:
+    return tuple(nom for nom, motif in RE_ACTEURS_MAP.items() if motif.search(texte))
+def detecter_ttps(texte: str) -> tuple[str, ...]:
+    return tuple(tid for tid, motif in RE_TTP_MAP.items() if motif.search(texte))
 # --- Score de criticité --------------------------------------------------------
 SEUIL_CRITIQUE = 10    # 🔴
 SEUIL_IMPORTANT = 6    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
@@ -400,6 +441,8 @@ class Article:
     score: int = 0
     criticite: str = ""
     cves: tuple = ()                                   # CVE distinctes citées (titre + résumé)
+    ttps: tuple[str, ...] = ()                         # techniques MITRE ATT&CK détectées
+    acteurs: tuple[str, ...] = ()                      # acteurs canoniques détectés
     epss: float | None = None                          # probabilité d'exploitation (0 à 1)
     cvss: float | None = None                          # gravité technique (0 à 10)
     aussi: list[tuple[str, str]] = field(default_factory=list)  # (source, lien) de la même CVE
@@ -681,6 +724,8 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
                 score=score,
                 criticite=pastille(score),
                 cves=tuple(sorted(extraire_cves(court))),
+                ttps=detecter_ttps(court),
+                acteurs=detecter_acteurs(court),
             )
         )
     # Les plus dangereux d'abord : si le plafond par source est atteint, on garde l'essentiel
@@ -800,6 +845,8 @@ def collecter_cisa_kev(session: requests.Session, deja_vus: set[str]):
                 score=score,
                 criticite=pastille(score),
                 cves=tuple(sorted(extraire_cves(titre) | extraire_cves(description))),
+                ttps=detecter_ttps(f"{titre} {description}"),
+                acteurs=detecter_acteurs(f"{titre} {description}"),
             )
         )
     articles.sort(key=lambda a: (a.score, a.date), reverse=True)
@@ -863,6 +910,8 @@ def collecter_github_advisories(session: requests.Session, depuis: datetime):
                 score=score,
                 criticite=pastille(score),
                 cves=tuple(sorted(cves)),
+                ttps=detecter_ttps(f"{titre} {summary}"),
+                acteurs=detecter_acteurs(f"{titre} {summary}"),
                 cvss=float(cvss) if isinstance(cvss, (int, float)) else None,
             )
         )
@@ -1081,6 +1130,8 @@ def _puces(texte: str) -> list[str]:
 def compter(groupes: dict[str, list[Article]]) -> dict:
     articles = [a for v in groupes.values() for a in v]
     cves = {c for a in articles for c in a.cves}
+    ttp_top = Counter(c for a in articles for c in a.ttps).most_common(5)
+    acteur_top = Counter(c for a in articles for c in a.acteurs).most_common(5)
     return {
         "total": len(articles),
         "critiques": sum(1 for a in articles if a.criticite == "🔴"),
@@ -1091,6 +1142,8 @@ def compter(groupes: dict[str, list[Article]]) -> dict:
         "campagnes": sum(1 for a in articles if "⚡" in a.tags),
         "sources_actives": len(groupes),
         "sources_total": len(SOURCES_RSS) + 2,
+        "ttp_top": ttp_top,
+        "acteur_top": acteur_top,
     }
 def priorites(groupes: dict[str, list[Article]], n: int = PRIORITES_N,
               max_kev: int = PRIORITES_MAX_KEV) -> list[Article]:
@@ -1154,6 +1207,28 @@ def _metriques(a: Article) -> str:
     if a.cvss is not None:
         morceaux.append(f"CVSS {a.cvss:.1f}")
     return " · ".join(morceaux)
+def _qualification(a: Article) -> str:
+    morceaux = []
+    if a.ttps:
+        morceaux.append("TTP " + ", ".join(a.ttps))
+    if a.acteurs:
+        morceaux.append("Acteur " + ", ".join(a.acteurs))
+    return " · ".join(morceaux)
+def _liens_cve_html(cve: str) -> str:
+    c = html.escape(cve, quote=True)
+    num = html.escape(cve.replace("CVE-", ""), quote=True)
+    return (
+        f'<a href="https://nvd.nist.gov/vuln/detail/{c}" target="_blank" rel="noopener noreferrer">NVD</a> · '
+        f'<a href="https://www.exploit-db.com/search?cve={num}" target="_blank" rel="noopener noreferrer">Exploit-DB</a> · '
+        f'<a href="https://github.com/advisories?query={c}" target="_blank" rel="noopener noreferrer">GitHub</a>'
+    )
+def _liens_cve_texte(cve: str) -> str:
+    num = cve.replace("CVE-", "")
+    return (
+        f"NVD: https://nvd.nist.gov/vuln/detail/{cve} · "
+        f"Exploit-DB: https://www.exploit-db.com/search?cve={num} · "
+        f"GitHub: https://github.com/advisories?query={cve}"
+    )
 def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
                 resume_ia: str | None = None, stats: dict | None = None,
                 rappels: list[dict] | None = None, fournisseurs: list[dict] | None = None,
@@ -1178,8 +1253,16 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         '<p style="font-size:12px;color:#555">Légende : 🔴 critique · 🟠 important · 🇧🇪 Belgique/UE · '
         "🎯 produits et stack · 💥 technique d'exploitation · 🕵️ acteur APT/ransomware · "
         "🔥 CVE utilisée par des ransomwares · ⚡ campagne active · "
+        "TTP = technique MITRE ATT&CK · "
         "EPSS = probabilité d'exploitation (FIRST) · CVSS = gravité technique (NVD)</p>",
     ]
+    if c["ttp_top"] or c["acteur_top"]:
+        details = []
+        if c["ttp_top"]:
+            details.append("TTP : " + ", ".join(f"{tid} ({n})" for tid, n in c["ttp_top"]))
+        if c["acteur_top"]:
+            details.append("Acteurs : " + ", ".join(f"{nom} ({n})" for nom, n in c["acteur_top"]))
+        parties.append('<p style="font-size:12px;color:#555">' + e(" · ".join(details)) + "</p>")
     if nb_affiches < c["total"]:
         parties.append(
             '<p style="background:#eef4ff;padding:8px;border-radius:4px;font-size:12px">'
@@ -1207,10 +1290,13 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         for a in top:
             m = _metriques(a)
             metr = f' <small style="color:#666">[{e(m)}]</small>' if m else ""
+            qual = _qualification(a)
+            qual_html = f'<br><small>{e(qual)}</small>' if qual else ""
+            cve_html = f'<br><small>{_liens_cve_html(a.cves[0])}</small>' if a.cves else ""
             parties.append(
                 f'<li style="margin-bottom:6px"><b>{e(_marques(a))}</b> '
                 f'<a href="{e(a.lien, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.titre)}</a>{metr} '
-                f'<small>({e(a.source)})</small></li>'
+                f'<small>({e(a.source)})</small>{qual_html}{cve_html}</li>'
             )
         parties.append("</ul>")
     else:
@@ -1223,8 +1309,8 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         for r in rappels:
             cve = e(r["cve"])
             parties.append(
-                f'<li style="margin-bottom:6px"><a href="https://nvd.nist.gov/vuln/detail/{cve}" '
-                f'target="_blank" rel="noopener noreferrer">{cve}</a> · {e(_ligne_rappel(r))}</li>'
+                f'<li style="margin-bottom:6px"><b>{cve}</b> · {e(_ligne_rappel(r))}'
+                f'<br><small>{_liens_cve_html(r["cve"])}</small></li>'
             )
         parties.append("</ul>")
     derniere_cat = None
@@ -1245,12 +1331,14 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
             m = _metriques(a)
             metr = f' <small style="color:#666">[{e(m)}]</small>' if m else ""
             detail = f"<br><small>{e(a.detail)}</small>" if a.detail else ""
+            qual = _qualification(a)
+            qual_html = f"<br><small>{e(qual)}</small>" if qual else ""
             aussi = ("<br><small>Aussi couvert par : " + ", ".join(
                 f'<a href="{e(lien, quote=True)}" target="_blank" rel="noopener noreferrer">{e(src)}</a>'
                 for src, lien in a.aussi) + "</small>") if a.aussi else ""
             parties.append(
                 f'<li style="margin-bottom:10px">{tag}'
-                f'<a href="{e(a.lien, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.titre)}</a>{metr}{detail}{aussi}</li>'
+                f'<a href="{e(a.lien, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.titre)}</a>{metr}{detail}{qual_html}{aussi}</li>'
             )
         parties.append("</ul>")
     if fournisseurs:
@@ -1285,6 +1373,13 @@ def rendre_texte(groupes: dict[str, list[Article]], erreurs: list[str],
         f"importants : {c['importants']} · CVE ransomware : {c['cves_ransomware']} · "
         f"cyberattaques recensées : {c['attaques']}"
     ]
+    if c["ttp_top"] or c["acteur_top"]:
+        details = []
+        if c["ttp_top"]:
+            details.append("TTP : " + ", ".join(f"{tid} ({n})" for tid, n in c["ttp_top"]))
+        if c["acteur_top"]:
+            details.append("Acteurs : " + ", ".join(f"{nom} ({n})" for nom, n in c["acteur_top"]))
+        lignes.append(" · ".join(details))
     if nb_affiches < c["total"]:
         lignes.append(f"({c['total']} articles collectés, {nb_affiches} affichés : "
                       "les moins prioritaires sont masqués pour éviter la troncature.)")
@@ -1298,11 +1393,16 @@ def rendre_texte(groupes: dict[str, list[Article]], erreurs: list[str],
         lignes.append("\n##### PRIORITÉS DU JOUR #####")
         for a in top:
             m = _metriques(a)
-            lignes.append(f"- {_marques(a)} {a.titre}{f' [{m}]' if m else ''}\n  {a.lien}")
+            qual = _qualification(a)
+            extra = f" [{qual}]" if qual else ""
+            cve_extra = f"\n  {_liens_cve_texte(a.cves[0])}" if a.cves else ""
+            lignes.append(
+                f"- {_marques(a)} {a.titre}{f' [{m}]' if m else ''}{extra}\n  {a.lien}{cve_extra}"
+            )
     if rappels:
         lignes.append("\n##### TOUJOURS D'ACTUALITÉ #####")
         for r in rappels:
-            lignes.append(f"- {r['cve']} · {_ligne_rappel(r)}\n  https://nvd.nist.gov/vuln/detail/{r['cve']}")
+            lignes.append(f"- {r['cve']} · {_ligne_rappel(r)}\n  {_liens_cve_texte(r['cve'])}")
     derniere_cat = None
     for source, articles in affiches.items():
         if articles[0].categorie != derniere_cat:
@@ -1314,8 +1414,10 @@ def rendre_texte(groupes: dict[str, list[Article]], erreurs: list[str],
         lignes.append(f"\n== {libelle} ==")
         for a in articles:
             marques, m = _marques(a), _metriques(a)
+            qual = _qualification(a)
             lignes.append(
-                f"- {marques + ' ' if marques else ''}{a.titre}{f' [{m}]' if m else ''}\n  {a.lien}"
+                f"- {marques + ' ' if marques else ''}{a.titre}{f' [{m}]' if m else ''}"
+                f"{f' [{qual}]' if qual else ''}\n  {a.lien}"
                 + (f"\n  Aussi couvert par : {', '.join(f'{src} ({lien})' for src, lien in a.aussi)}"
                    if a.aussi else "")
             )

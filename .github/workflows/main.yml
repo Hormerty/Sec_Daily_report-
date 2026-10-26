@@ -8,10 +8,10 @@ on:
       fenetre_heures:
         description: "Fenêtre de collecte en heures (mettre 72 pour rattraper un run manqué)"
         required: false
-        default: "30"
+        default: "48"
  
 permissions:
-  contents: read
+  contents: write
  
 concurrency:
   group: veille
@@ -21,8 +21,6 @@ jobs:
   veille:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write   # pour pousser la branche « data » (état du bot)
     steps:
       - uses: actions/checkout@v6
         with:
@@ -49,10 +47,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           TZ: Europe/Brussels
-          # 30 h = 24 h + 6 h de marge pour un cron en retard ; les doublons sont filtrés par seen.json
-          FENETRE_HEURES: ${{ inputs.fenetre_heures || '30' }}
+          # 48 h = 24 h + 24 h de marge pour un cron en retard ; les doublons sont filtrés par seen.json
+          FENETRE_HEURES: ${{ inputs.fenetre_heures || '48' }}
           CISA_JOURS: "2"
-          IGNORER_DEJA_VUS: "0"
+          IGNORER_DEJA_VUS: "1"
           MAX_ARTICLES_EMAIL: "120"
         run: python veille.py
  

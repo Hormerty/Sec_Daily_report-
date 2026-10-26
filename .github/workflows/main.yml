@@ -13,6 +13,7 @@ on:
 permissions:
   contents: write
  
+# Même groupe que alerte.yml : les deux workflows touchent à l'état (branche data), jamais en parallèle.
 concurrency:
   group: veille
   cancel-in-progress: false
@@ -47,9 +48,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           TZ: Europe/Brussels
-          # 48 h = 24 h + 24 h de marge pour un cron en retard ; les doublons sont filtrés par seen.json
+          # Rapport glissant sur 48 h
           FENETRE_HEURES: ${{ inputs.fenetre_heures || '48' }}
           CISA_JOURS: "2"
+          # "1" = rapport glissant : les articles de la veille réapparaissent dans le mail du jour
+          # (choix d'origine du script). "0" = seulement les nouveautés depuis le dernier mail.
           IGNORER_DEJA_VUS: "1"
           MAX_ARTICLES_EMAIL: "120"
         run: python veille.py

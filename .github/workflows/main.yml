@@ -1,64 +1,80 @@
 name: Veille cybersécurité
+ 
 on:
   schedule:
-    - cron: "58 5 * * *"   # 05:58 UTC chaque jour (évite le pic de charge de l'heure pile)
-  workflow_dispatch:        # lancement manuel pour tester
+    - cron: "58 5 * * *"   # 05:58 UTC chaque jour (hors heure pile : moins de retards)
+  workflow_dispatch:
+    inputs:
+      fenetre_heures:
+        description: "Fenêtre de collecte en heures (mettre 72 pour rattraper un run manqué)"
+        required: false
+        default: "30"
+ 
 permissions:
-  contents: write           # nécessaire pour commiter seen.json, stats.db et kev_cache.json
+  contents: read
+ 
 concurrency:
-  group: veille             # jamais deux exécutions en même temps (sinon conflit sur stats.db)
+  group: veille
   cancel-in-progress: false
+ 
 jobs:
   veille:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write   # pour pousser la branche « data » (état du bot)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          fetch-depth: 0    # nécessaire pour git pull --rebase
-      - uses: actions/setup-python@v5
+          fetch-depth: 1
+ 
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements.txt
+ 
       - name: Dépendances
-        run: pip install -r requirements.txt pytest
-      - name: "Tests (visibles mais non bloquants, le rapport part quand même)"
-        continue-on-error: true
-        run: pytest -q
+        run: pip install -r requirements.txt
+ 
+      - name: "Restaurer l'état (branche data)"
+        id: restaurer
+        run: bash scripts/etat_restaurer.sh
+ 
       - name: Rapport
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optionnel : résumé IA
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}               # optionnel : CVSS plus nombreux
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           TZ: Europe/Brussels
-          FENETRE_HEURES: "48"          # rapport glissant sur 2 jours
-          CISA_JOURS: "2"               # entrées KEV des 2 derniers jours
-          IGNORER_DEJA_VUS: "1"         # inclure les articles déjà envoyés
-          MAX_ARTICLES_EMAIL: "120"     # plafond anti-troncature Gmail
+          # 30 h = 24 h + 6 h de marge pour un cron en retard ; les doublons sont filtrés par seen.json
+          FENETRE_HEURES: ${{ inputs.fenetre_heures || '30' }}
+          CISA_JOURS: "2"
+          IGNORER_DEJA_VUS: "0"
+          MAX_ARTICLES_EMAIL: "120"
         run: python veille.py
-      - name: "Sauvegarder l'état (seen.json + stats.db + kev_cache.json)"
-        if: always()        # le script peut sortir en 1 après avoir envoyé un rapport dégradé
+ 
+      # Jamais si la restauration a échoué : on n'écrase pas l'historique avec un état vide.
+      - name: "Sauvegarder l'état (branche data)"
+        if: always() && steps.restaurer.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/etat_sauvegarder.sh
+ 
+      - name: Supervision (ping de succès)
+        if: success()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_URL }}
         run: |
-          git config user.name "noursecbot"
-          git config user.email "noursecbot@users.noreply.github.com"
-          for f in seen.json stats.db kev_cache.json; do
-            if [ -f "$f" ]; then
-              git add "$f"
-            fi
-          done
-          if git diff --cached --quiet; then
-            echo "Aucun changement d'état."
-            exit 0
-          fi
-          git commit -m "maj état $(date -u +%F)"
-          for i in 1 2 3; do
-            if git pull --rebase --autostash && git push; then
-              exit 0
-            fi
-            git rebase --abort 2>/dev/null || true
-            echo "Push échoué, tentative $i/3"
-            sleep $((i * 5))
-          done
-          exit 1
+          if [ -z "$HC_URL" ]; then echo "HEALTHCHECK_URL non défini : ping ignoré."; exit 0; fi
+          curl -fsS -m 10 --retry 3 "$HC_URL" >/dev/null || echo "::warning::Ping healthchecks échoué"
+ 
+      - name: Supervision (ping d'échec)
+        if: failure()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: |
+          if [ -z "$HC_URL" ]; then exit 0; fi
+          curl -fsS -m 10 --retry 3 "$HC_URL/fail" >/dev/null || echo "::warning::Ping healthchecks échoué"

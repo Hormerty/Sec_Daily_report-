@@ -1175,11 +1175,11 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
     parties = [
         '<html lang="fr"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<title>Veille cybersécurité</title></head>'
+        '<title>Cybersecurity live monitoring</title></head>'
         '<body style="font-family:Arial,sans-serif;color:#333;line-height:1.5;max-width:900px;margin:auto">',
         '<h1 style="color:#d9534f;border-bottom:2px solid #d9534f">🛡️ Veille cybersécurité & OSINT</h1>',
         '<div style="background:#f8f9fa;padding:10px;border-radius:5px;border:1px solid #ddd">'
-        f"<b>📊 Tableau de bord</b><br>{c['total']} article(s) · fenêtre {FENETRE_HEURES} h · "
+        f"<b>📊 Dashboard</b><br>{c['total']} article(s) · fenêtre {FENETRE_HEURES} h · "
         f"{c['sources_actives']}/{c['sources_total']} sources actives · {c['cves']} CVE distincte(s)<br>"
         f"🔴 Critiques : {c['critiques']} · 🟠 Importants : {c['importants']}<br>"
         f"🔥 CVE exploitées par des ransomwares : {c['cves_ransomware']} · "

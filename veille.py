@@ -137,9 +137,9 @@ RE_ZERODAY = re.compile(r"\b(?:zero[- ]?days?|0[- ]?days?)\b|jour[- ]z[ée]ro", 
 RE_RANSOM = re.compile(r"ransomware|ran[cç]ongiciel", re.IGNORECASE)
 # « in the wild » nu était trop large : « not exploited in the wild » prenait +5.
 RE_EXPLOITEE = re.compile(
-    r"actively exploited|active(?:ly)? exploit|exploited in (?:the wild|attacks)|"
-    r"exploitation (?:active|dans la nature)|activement exploit|"
-    r"exploit[ée]e?s? (?:activement|dans la nature)",
+   r"\bactively exploited|\bactive(?:ly)? exploit|\bexploited in (?:the wild|attacks)|"
+    r"\bexploitation (?:active|dans la nature)|\bactivement exploit|"
+    r"\bexploit[ée]e?s? (?:activement|dans la nature)",
     re.IGNORECASE,
 )
 # Campagne active (⚡) : volontairement sans "campaign" ni "widespread" seuls ("phishing campaign"

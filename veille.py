@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NourSECBot : veille cybersécurité & OSINT quotidienne par e-mail.
+"""NourSECBot : Cybersecurity live monitoring & OSINT.
 Version corrigée : isolement des sources, variables d'environnement tolérantes,
 écriture atomique de l'état, cache KEV, EPSS en CSV et plafond d'e-mail.
 """
@@ -108,15 +108,52 @@ USER_AGENT = (
 )
 # Marquage prioritaire (🇧🇪 / 🎯) : correspondance sur mots entiers
 MOTS_CLES_BELGIQUE = [
-    "belgique", "belgium", "securitas", "ccb", "safeonweb",
+    "belgique", "belgium", "belge", "belges", "ccb", "safeonweb",
+    "cert-eu", "enisa", "europol", "nato", "apd", "rgpd", "gdpr",
+    "nis2", "commission européenne", "european commission",
 ]
+# Ta stack + les produits critiques les plus exploités (liste inspirée de
+# CVE_POC_monitor/known_object.yaml et des vendor advisories).
 MOTS_CLES_CIBLES = [
-    "exchange", "outlook", "office 365", "microsoft 365", "sharepoint",
-    "vmware", "esxi", "citrix", "fortinet", "fortigate", "palo alto",
-    "check point", "checkpoint", "ivanti", "sap", "oracle", "ibm", "node",
-    "vpn", "amag", "symmetry", "securitas", "genetec",
-    "voo", "ores",  # fournisseurs internet / réseau électrique locaux
-    "anker", "solix", "tp-link", "tplink",  # matériel domestique (batterie solaire, Wi-Fi)
+    # Microsoft / collaboration
+    "microsoft exchange", "exchange", "outlook", "office 365", "microsoft 365",
+    "sharepoint", "entra id", "azure ad", "okta", "saml", "oauth",
+    # Virtualisation / réseau / sécurité
+    "vmware", "esxi", "vcenter", "citrix", "citrix adc", "netscaler",
+    "fortinet", "fortios", "fortigate", "palo alto", "globalprotect",
+    "check point", "checkpoint", "ivanti", "ivanti connect secure",
+    "ssl-vpn",
+    # Produits critiques
+    "weblogic", "ofbiz", "geoserver", "tomcat", "confluence", "jenkins",
+    "gitlab", "zabbix", "teamcity", "spring security", "solr",
+    "apache http server", "dubbo", "coldfusion", "big-ip", "jira",
+    "manageengine", "shiro", "harbor", "kafka ui", "moveit", "goanywhere",
+    "cleo", "papercut", "solarwinds", "openclaw", "langflow", "n8n",
+    "vllm", "cups",
+    # ERP / middleware
+    "sap netweaver", "sap commerce", "oracle e-business suite",
+    "ibm websphere", "ibm maximo", "ibm aspera", "node.js", "nodejs",
+    # Matériel et fournisseurs locaux
+    "amag", "symmetry", "securitas", "genetec", "voo", "ores",
+    "anker", "solix", "tp-link", "tplink",
+]
+# Signaux d'exploitation : pondérés plus fort que la simple stack.
+MOTS_CLES_MENACES = [
+    "rce", "remote code execution", "lpe", "privilege escalation", "privesc",
+    "auth bypass", "authentication bypass", "deserialization", "path traversal",
+    "command injection", "sql injection", "ssrf", "xxe", "supply chain",
+    "dependency confusion", "poc", "proof of concept", "n-day",
+    "double extortion", "raas", "initial access broker", "infostealer",
+    "exfiltration", "bec", "business email compromise", "quishing",
+    "aitm", "evilginx", "token theft", "session hijacking", "mfa fatigue",
+    "pass-the-cookie", "golden ticket", "kerberoasting",
+]
+# Groupes APT / cybercriminels suivis par CTI Radar et les flux threat intel.
+MOTS_CLES_ACTEURS = [
+    "apt28", "apt29", "apt41", "volt typhoon", "salt typhoon",
+    "sandworm", "turla", "lazarus", "kimsuky", "charming kitten",
+    "muddywater", "scattered spider", "lockbit", "akira", "clop",
+    "alphv", "blackcat", "qilin", "medusa", "fin7", "revil",
 ]
 # Volontairement absents : "windows", "linux", "teams", "azure" (présents dans trop d'articles,
 # le marqueur 🎯 perdrait son sens), et "ransomware" (déjà pondéré par RE_RANSOM et signalé par 🔥 :
@@ -125,6 +162,8 @@ def _motif(mots: list[str]) -> re.Pattern:
     return re.compile(r"\b(?:" + "|".join(re.escape(m) for m in mots) + r")\b", re.IGNORECASE)
 RE_BELGIQUE = _motif(MOTS_CLES_BELGIQUE)
 RE_CIBLES = _motif(MOTS_CLES_CIBLES)
+RE_MENACES = _motif(MOTS_CLES_MENACES)
+RE_ACTEURS = _motif(MOTS_CLES_ACTEURS)
 # --- Score de criticité --------------------------------------------------------
 SEUIL_CRITIQUE = 10    # 🔴
 SEUIL_IMPORTANT = 6    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
@@ -136,8 +175,9 @@ RE_TIRETS_TYPO = re.compile(r"[\u2010-\u2015\u2212]")
 RE_ZERODAY = re.compile(r"\b(?:zero[- ]?days?|0[- ]?days?)\b|jour[- ]z[ée]ro", re.IGNORECASE)
 RE_RANSOM = re.compile(r"ransomware|ran[cç]ongiciel", re.IGNORECASE)
 # « in the wild » nu était trop large : « not exploited in the wild » prenait +5.
+# Les \b évitent aussi « inexploitée » et « inactive exploitation ».
 RE_EXPLOITEE = re.compile(
-   r"\bactively exploited|\bactive(?:ly)? exploit|\bexploited in (?:the wild|attacks)|"
+    r"\bactively exploited|\bactive(?:ly)? exploit|\bexploited in (?:the wild|attacks)|"
     r"\bexploitation (?:active|dans la nature)|\bactivement exploit|"
     r"\bexploit[ée]e?s? (?:activement|dans la nature)",
     re.IGNORECASE,
@@ -153,7 +193,8 @@ RE_CAMPAGNE = re.compile(
 )
 # Négation immédiate : « not exploited », « aucune exploitation », « pas de ransomware »...
 RE_NEGATION = re.compile(
-    r"\b(?:not(?!\s+only)|no|never|aucun(?:e)?|pas(?!\s+(?:seulement|uniquement))|sans|non)"
+    r"\b(?:not(?!\s+(?:only|just))|no|never|aucun(?:e)?|"
+    r"pas(?!\s+(?:seulement|uniquement))|sans|non(?!\s+seulement))"
     r"\s+(?:\w+\s+){0,4}$",
     re.IGNORECASE,
 )
@@ -182,6 +223,10 @@ def calculer_criticite(texte: str) -> tuple[int, str]:
         score += 5
     if _positif(RE_CAMPAGNE, texte):
         score += 3
+    if _positif(RE_MENACES, texte):
+        score += 3
+    if RE_ACTEURS.search(texte):
+        score += 2
     if RE_BELGIQUE.search(texte):
         score += 2
     if RE_CIBLES.search(texte):
@@ -236,7 +281,8 @@ def _texte_entree(entree) -> str:
 def _texte_court(entree) -> str:
     """Titre + résumé + catégories (sans le corps complet) : base du scoring et des CVE.
     Un article long qui cite 15 vieilles CVE ou mentionne « ransomware » en passant
-    ne doit pas passer 🔴 ; le filtre de pertinence, lui, garde le texte complet."""
+    ne doit pas passer 🔴 ; le filtre de pertinence, lui, garde le texte complet.
+    """
     morceaux = [entree.get("title") or "", entree.get("summary") or ""]
     morceaux += [t.get("term", "") for t in (entree.get("tags") or []) if hasattr(t, "get")]
     brut = " ".join(m for m in morceaux if m)
@@ -251,15 +297,31 @@ BLOGS = "Blogs & OSINT"
 ORDRE_CATEGORIES = [ALERTES, DARKWEB, ACTUS, INTEL, BLOGS]
 SOURCE_RANSOMWARE_LIVE = "Ransomware.live"
 SOURCE_KEV = "CISA KEV"
+SOURCE_GITHUB = "GitHub Advisory"
+# Pistes API non câblées ici car elles ne produisent pas des articles RSS :
+# CIRCL CVE Search (JSON CVE), Feodo Tracker (IP de C2), GitHub Search (PoC).
+# GitHub Advisory, lui, est branché dans collecter_github_advisories().
 # Une source en erreur n'empêche pas le rapport : elle apparaît dans le bandeau jaune du mail.
 SOURCES_RSS = [
     # CERT & autorités
     {"nom": "CERT-FR avis", "url": "https://www.cert.ssi.gouv.fr/avis/feed/", "categorie": ALERTES},
     {"nom": "CERT-FR alertes", "url": "https://www.cert.ssi.gouv.fr/alerte/feed/", "categorie": ALERTES},
     {"nom": "CERT-EU", "url": "https://cert.europa.eu/publications/security-advisories-rss", "categorie": ALERTES},
+    {"nom": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "categorie": ALERTES},
+    {"nom": "NCSC UK", "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "categorie": ALERTES},
+    {"nom": "ACSC Australia", "url": "https://www.cyber.gov.au/rss/alerts", "categorie": ALERTES},
+    {"nom": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "categorie": ALERTES},
     {"nom": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "categorie": ALERTES},
     {"nom": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "categorie": ALERTES},
     {"nom": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "categorie": ALERTES},
+    # Vulnérabilités / exploits / avis fournisseurs
+    {"nom": "FortiGuard PSIRT", "url": "https://www.fortiguard.com/rss/ir.xml", "categorie": ALERTES},
+    {"nom": "Microsoft MSRC", "url": "https://api.msrc.microsoft.com/update-guide/rss", "categorie": ALERTES},
+    {"nom": "Palo Alto Advisories", "url": "https://security.paloaltonetworks.com/rss.xml", "categorie": ALERTES},
+    {"nom": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "categorie": ALERTES},
+    {"nom": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "categorie": ALERTES},
+    {"nom": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "categorie": ALERTES},
+    {"nom": "Packet Storm", "url": "https://packetstormsecurity.com/rss/files/", "categorie": ALERTES},
     # Dark web / ransomware
     {"nom": SOURCE_RANSOMWARE_LIVE, "url": "https://ransomware.live/cyberattacks.xml", "categorie": DARKWEB},
     # Actualités & médias
@@ -270,22 +332,72 @@ SOURCES_RSS = [
     {"nom": "SecurityWeek", "url": "https://www.securityweek.com/feed/", "categorie": ACTUS},
     {"nom": "Dark Reading", "url": "https://www.darkreading.com/rss.xml", "categorie": ACTUS},
     {"nom": "Help Net Security", "url": "https://www.helpnetsecurity.com/feed/", "categorie": ACTUS},
+    {"nom": "CyberScoop", "url": "https://cyberscoop.com/feed/", "categorie": ACTUS},
+    {"nom": "Security Affairs", "url": "https://securityaffairs.com/feed", "categorie": ACTUS},
+    {"nom": "Wired Security", "url": "https://www.wired.com/feed/category/security/latest/rss", "categorie": ACTUS},
+    {"nom": "Infosecurity Magazine", "url": "https://www.infosecurity-magazine.com/rss/news/", "categorie": ACTUS},
+    {"nom": "CSO Online", "url": "https://www.csoonline.com/feed/", "categorie": ACTUS},
+    {"nom": "UnderNews", "url": "https://www.undernews.fr/feed", "categorie": ACTUS},
+    {"nom": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux-rss/thematique/securite/rss.xml", "categorie": ACTUS},
+    {"nom": "IT-Connect", "url": "https://www.it-connect.fr/feed/", "categorie": ACTUS},
+    {"nom": "01net", "url": "https://www.01net.com/rss/info/flux-rss/flux-toutes-les-actualites/", "categorie": ACTUS},
+    {"nom": "Clubic", "url": "https://www.clubic.com/feed/news.rss", "categorie": ACTUS},
     {"nom": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "categorie": ACTUS, "filtre": True},
     {"nom": "Next", "url": "https://next.ink/feed/", "categorie": ACTUS, "filtre": True},
-    # Threat intelligence
+    # Threat intelligence / recherche
     {"nom": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "categorie": INTEL},
     {"nom": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "categorie": INTEL},
     {"nom": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "categorie": INTEL},
     {"nom": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/feed/", "categorie": INTEL},
     {"nom": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "categorie": INTEL},
     {"nom": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "categorie": INTEL},
+    {"nom": "The DFIR Report", "url": "https://thedfirreport.com/feed/", "categorie": INTEL},
+    {"nom": "AhnLab ASEC", "url": "https://asec.ahnlab.com/en/feed/", "categorie": INTEL},
+    {"nom": "SentinelOne Labs", "url": "https://labs.sentinelone.com/feed/", "categorie": INTEL},
+    {"nom": "Elastic Security Labs", "url": "https://www.elastic.co/security-labs/rss/feed.xml", "categorie": INTEL},
+    {"nom": "Sekoia", "url": "https://blog.sekoia.io/feed/", "categorie": INTEL},
+    {"nom": "Intezer", "url": "https://intezer.com/feed/", "categorie": INTEL},
+    {"nom": "Recorded Future", "url": "https://www.recordedfuture.com/feed/", "categorie": INTEL},
+    {"nom": "Dragos", "url": "https://dragos.com/feed/", "categorie": INTEL},
+    {"nom": "Red Canary", "url": "https://www.redcanary.com/blog/feed/", "categorie": INTEL},
+    {"nom": "GreyNoise", "url": "https://www.greynoise.io/blog/rss.xml", "categorie": INTEL},
+    {"nom": "Citizen Lab", "url": "https://citizenlab.org/category/lab-news/feed/", "categorie": INTEL},
+    {"nom": "Mandiant", "url": "https://cloud.google.com/blog/topics/threats/rss", "categorie": INTEL},
     # Blogs & OSINT
     {"nom": "Korben", "url": "https://korben.info/feed", "categorie": BLOGS, "filtre": True},
     {"nom": "Zataz", "url": "https://www.zataz.com/feed/", "categorie": BLOGS},
     {"nom": "HackerSploit", "url": "https://hackersploit.org/feed/", "categorie": BLOGS},
     {"nom": "NetworkChuck", "url": "https://networkchuck.com/feed/", "categorie": BLOGS},
     {"nom": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "categorie": BLOGS},
+    {"nom": "Schneier on Security", "url": "https://www.schneier.com/feed/atom/", "categorie": BLOGS},
+    {"nom": "Risky Business", "url": "https://risky.biz/feeds/risky-business/", "categorie": BLOGS},
+    {"nom": "The Cyber Wire", "url": "https://thecyberwire.com/feeds/daily-podcast.xml", "categorie": BLOGS},
 ]
+# Pondération des sources (idée reprise de CyberWatch) : 3 = autorité, 2 = recherche,
+# 1 = actualité, 0 = blog/OSINT. Le score final est ajusté dans collecter_rss.
+POIDS_SOURCES = {
+    "CERT-FR avis": 3, "CERT-FR alertes": 3, "CERT-EU": 3, "CISA Advisories": 3,
+    "NCSC UK": 3, "ACSC Australia": 3, "JPCERT/CC": 3, "CCB Belgique": 3,
+    "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,
+    "FortiGuard PSIRT": 3, "Microsoft MSRC": 3, "Palo Alto Advisories": 3,
+    "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2, "Packet Storm": 2,
+    "Ransomware.live": 1,
+    "GitHub Advisory": 3,
+    "BleepingComputer": 1, "The Hacker News": 1, "Krebs on Security": 2,
+    "The Record": 2, "SecurityWeek": 1, "Dark Reading": 1, "Help Net Security": 1,
+    "CyberScoop": 2, "Security Affairs": 1, "Wired Security": 1,
+    "Infosecurity Magazine": 1, "CSO Online": 1, "UnderNews": 1,
+    "Le Monde Informatique Sécurité": 1, "IT-Connect": 1, "01net": 0, "Clubic": 0,
+    "Ars Technica (Security)": 1, "Next": 1,
+    "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
+    "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
+    "The DFIR Report": 3, "AhnLab ASEC": 2, "SentinelOne Labs": 2,
+    "Elastic Security Labs": 2, "Sekoia": 2, "Intezer": 2, "Recorded Future": 2,
+    "Dragos": 3, "Red Canary": 2, "GreyNoise": 2, "Citizen Lab": 2, "Mandiant": 3,
+    "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
+    "Bellingcat": 1, "Schneier on Security": 2, "Risky Business": 2,
+    "The Cyber Wire": 1,
+}
 @dataclass
 class Article:
     source: str
@@ -300,7 +412,7 @@ class Article:
     cves: tuple = ()                                   # CVE distinctes citées (titre + résumé)
     epss: float | None = None                          # probabilité d'exploitation (0 à 1)
     cvss: float | None = None                          # gravité technique (0 à 10)
-    aussi: list = field(default_factory=list)          # autres sources qui parlent de la même CVE
+    aussi: list[tuple[str, str]] = field(default_factory=list)  # (source, lien) de la même CVE
 # --- Mémoire des articles déjà envoyés --------------------------------------
 def charger_deja_vus() -> list[str]:
     """Liste ORDONNÉE (du plus ancien au plus récent) : permet de tronquer proprement."""
@@ -515,6 +627,10 @@ def analyser_tags(texte: str) -> str:
         marques.append("🎯")
     if _positif(RE_CAMPAGNE, texte):
         marques.append("⚡")
+    if _positif(RE_MENACES, texte):
+        marques.append("💥")
+    if RE_ACTEURS.search(texte):
+        marques.append("🕵️")
     return " ".join(marques)
 def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
                   deja_vus: set[str]) -> tuple[list[Article], str | None]:
@@ -562,7 +678,8 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
             log.info("  écarté (hors-sujet) [%s] : %s", source["nom"], titre)
             continue
         court = _texte_court(entree)
-        score, criticite = calculer_criticite(court)
+        score, _ = calculer_criticite(court)
+        score += POIDS_SOURCES.get(source["nom"], 0)
         articles.append(
             Article(
                 source=source["nom"],
@@ -572,7 +689,7 @@ def collecter_rss(session: requests.Session, source: dict, depuis: datetime,
                 categorie=source["categorie"],
                 tags=analyser_tags(court),
                 score=score,
-                criticite=criticite,
+                criticite=pastille(score),
                 cves=tuple(sorted(extraire_cves(court))),
             )
         )
@@ -588,6 +705,36 @@ def collecter_source(source: dict, depuis: datetime, deja_vus: set[str]) -> tupl
     except Exception as exc:  # noqa: BLE001
         log.exception("Source %s : échec inattendu", source["nom"])
         return [], f"{source['nom']} : erreur inattendue ({type(exc).__name__})"
+def verifier_flux(session: requests.Session | None = None) -> int:
+    """Mode `--check-feeds` : teste les flux et signale les morts, sans envoyer d'e-mail."""
+    session = session or creer_session()
+    ok = 0
+    problemes: list[str] = []
+    for source in SOURCES_RSS:
+        try:
+            reponse = session.get(source["url"], timeout=TIMEOUT)
+            reponse.raise_for_status()
+            flux = feedparser.parse(reponse.content)
+            if not flux.entries:
+                problemes.append(source["nom"])
+                print(f"KO   {source['nom']:<32} 0 entrée")
+                continue
+            derniere = ""
+            for entree in flux.entries:
+                t = entree.get("published_parsed") or entree.get("updated_parsed")
+                if t:
+                    try:
+                        derniere = datetime(*t[:6], tzinfo=timezone.utc).strftime("%Y-%m-%d")
+                    except (TypeError, ValueError):
+                        pass
+                    break
+            ok += 1
+            print(f"OK   {source['nom']:<32} {len(flux.entries):3d} entrées  dernière={derniere or '?'}")
+        except (requests.RequestException, OSError) as exc:
+            problemes.append(source["nom"])
+            print(f"KO   {source['nom']:<32} {exc}")
+    print(f"\n{ok}/{len(SOURCES_RSS)} flux OK ; problèmes : {', '.join(problemes) or 'aucun'}")
+    return 0 if not problemes else 1
 # --- Cache du catalogue KEV ---------------------------------------------------
 def _lire_cache_kev() -> list[dict]:
     try:
@@ -667,6 +814,70 @@ def collecter_cisa_kev(session: requests.Session, deja_vus: set[str]):
         )
     articles.sort(key=lambda a: (a.score, a.date), reverse=True)
     log.info("CISA KEV : %d nouvelle(s)", len(articles))
+    return articles[:MAX_CISA], None
+def collecter_github_advisories(session: requests.Session, depuis: datetime):
+    """GitHub Advisory Database (API) : complète les flux RSS pour l'open source."""
+    url = "https://api.github.com/advisories"
+    try:
+        r = session.get(url, params={"per_page": 100, "sort": "published",
+                                     "direction": "desc"}, timeout=TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+    except (requests.RequestException, ValueError) as exc:
+        log.warning("GitHub Advisory : %s", exc)
+        return [], f"GitHub Advisory : {exc}"
+    if not isinstance(data, list):
+        return [], "GitHub Advisory : format inattendu"
+    articles = []
+    for adv in data:
+        if not isinstance(adv, dict):
+            continue
+        try:
+            date = datetime.fromisoformat(str(adv.get("published_at", "")).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        if date < depuis:
+            continue
+        lien = adv.get("html_url") or ""
+        if not lien.startswith("https://"):
+            continue
+        cve = adv.get("cve_id") or ""
+        ghsa = adv.get("ghsa_id") or ""
+        identifiant = cve or ghsa or "GHSA"
+        summary = adv.get("summary") or "Avis GitHub"
+        titre = f"{identifiant} : {summary}"[:300]
+        cvss = (adv.get("cvss") or {}).get("score")
+        severity = (adv.get("severity") or "").lower()
+        score = 4
+        if severity == "critical":
+            score += 5
+        elif severity == "high":
+            score += 3
+        elif severity == "moderate":
+            score += 1
+        if isinstance(cvss, (int, float)) and cvss >= 9:
+            score += 2
+        score += POIDS_SOURCES.get(SOURCE_GITHUB, 0)
+        cves = extraire_cves(summary)
+        if cve:
+            cves.add(str(cve).upper())
+        articles.append(
+            Article(
+                source=SOURCE_GITHUB,
+                titre=titre,
+                lien=lien,
+                date=date,
+                categorie=ALERTES,
+                detail=summary[:800],
+                tags=analyser_tags(f"{titre} {summary}"),
+                score=score,
+                criticite=pastille(score),
+                cves=tuple(sorted(cves)),
+                cvss=float(cvss) if isinstance(cvss, (int, float)) else None,
+            )
+        )
+    articles.sort(key=lambda a: (a.score, a.date), reverse=True)
+    log.info("GitHub Advisory : %d nouvelle(s)", len(articles))
     return articles[:MAX_CISA], None
 def top_fournisseurs(vulns: list[dict], aujourdhui: str, jours: int = FOURNISSEURS_JOURS,
                      n: int = FOURNISSEURS_N) -> list[dict]:
@@ -889,7 +1100,7 @@ def compter(groupes: dict[str, list[Article]]) -> dict:
         "attaques": sum(1 for a in articles if a.source == SOURCE_RANSOMWARE_LIVE),
         "campagnes": sum(1 for a in articles if "⚡" in a.tags),
         "sources_actives": len(groupes),
-        "sources_total": len(SOURCES_RSS) + 1,
+        "sources_total": len(SOURCES_RSS) + 2,
     }
 def priorites(groupes: dict[str, list[Article]], n: int = PRIORITES_N,
               max_kev: int = PRIORITES_MAX_KEV) -> list[Article]:
@@ -974,8 +1185,9 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
         f"🔥 CVE exploitées par des ransomwares : {c['cves_ransomware']} · "
         f"🏴‍☠️ Cyberattaques recensées (Ransomware.live) : {c['attaques']} · "
         f"⚡ Articles signalant une campagne : {c['campagnes']}</div>",
-        '<p style="font-size:12px;color:#555">Légende : 🔴 critique · 🟠 important · 🇧🇪 Belgium · '
-        "🎯 vos mots-clés · 🔥 CVE utilisée par des ransomwares · ⚡ campagne active · "
+        '<p style="font-size:12px;color:#555">Légende : 🔴 critique · 🟠 important · 🇧🇪 Belgique/UE · '
+        "🎯 produits et stack · 💥 technique d'exploitation · 🕵️ acteur APT/ransomware · "
+        "🔥 CVE utilisée par des ransomwares · ⚡ campagne active · "
         "EPSS = probabilité d'exploitation (FIRST) · CVSS = gravité technique (NVD)</p>",
     ]
     if nb_affiches < c["total"]:
@@ -1220,6 +1432,11 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 - KEV ne doit pas empêcher les RSS
             log.exception("CISA KEV : échec inattendu")
             resultats = [([], f"CISA KEV : erreur inattendue ({type(exc).__name__})")]
+        try:
+            resultats.append(collecter_github_advisories(session, depuis))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("GitHub Advisory : échec inattendu")
+            resultats.append(([], f"GitHub Advisory : erreur inattendue ({type(exc).__name__})"))
         with ThreadPoolExecutor(max_workers=8) as pool:
             resultats += list(pool.map(
                 lambda s: collecter_source(s, depuis, deja_vus), SOURCES_RSS))
@@ -1291,11 +1508,12 @@ def main() -> int:
         tous_liens = {a.lien for liste in groupes.values() for a in liste}
         affiches_liens = {a.lien for liste in limiter_pour_email(groupes, limite_email).values()
                           for a in liste}
+        affiches_liens |= {a.lien for a in priorites(groupes)}
         masques = tous_liens - affiches_liens  # coupés par le plafond : ils pourront revenir
         sauvegarder_deja_vus(anciens, [lien for lien in nouveaux if lien not in masques])
         enregistrer(conn, groupes, infos, aujourdhui)
         # Code de sortie non nul si la veille est trop dégradée : le run apparaît en rouge.
-        total_sources = len(SOURCES_RSS) + 1
+        total_sources = len(SOURCES_RSS) + 2
         sources_ok = total_sources - len(erreurs)
         if sources_ok == 0:
             log.error("Aucune source joignable")
@@ -1311,4 +1529,6 @@ def main() -> int:
         if conn is not None:
             conn.close()
 if __name__ == "__main__":
+    if "--check-feeds" in sys.argv:
+        sys.exit(verifier_flux())
     sys.exit(main())

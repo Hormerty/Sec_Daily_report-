@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NourSECBot : Cybersecurity live monitoring & OSINT.
+"""NourSECBot : veille cybersécurité & OSINT quotidienne par e-mail.
 Version corrigée : isolement des sources, variables d'environnement tolérantes,
 écriture atomique de l'état, cache KEV, EPSS en CSV et plafond d'e-mail.
 """
@@ -307,9 +307,7 @@ SOURCES_RSS = [
     {"nom": "CERT-FR avis", "url": "https://www.cert.ssi.gouv.fr/avis/feed/", "categorie": ALERTES},
     {"nom": "CERT-FR alertes", "url": "https://www.cert.ssi.gouv.fr/alerte/feed/", "categorie": ALERTES},
     {"nom": "CERT-EU", "url": "https://cert.europa.eu/publications/security-advisories-rss", "categorie": ALERTES},
-    {"nom": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "categorie": ALERTES},
     {"nom": "NCSC UK", "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "categorie": ALERTES},
-    {"nom": "ACSC Australia", "url": "https://www.cyber.gov.au/rss/alerts", "categorie": ALERTES},
     {"nom": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "categorie": ALERTES},
     {"nom": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "categorie": ALERTES},
     {"nom": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "categorie": ALERTES},
@@ -321,7 +319,6 @@ SOURCES_RSS = [
     {"nom": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "categorie": ALERTES},
     {"nom": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "categorie": ALERTES},
     {"nom": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "categorie": ALERTES},
-    {"nom": "Packet Storm", "url": "https://packetstormsecurity.com/rss/files/", "categorie": ALERTES},
     # Dark web / ransomware
     {"nom": SOURCE_RANSOMWARE_LIVE, "url": "https://ransomware.live/cyberattacks.xml", "categorie": DARKWEB},
     # Actualités & médias
@@ -339,9 +336,9 @@ SOURCES_RSS = [
     {"nom": "CSO Online", "url": "https://www.csoonline.com/feed/", "categorie": ACTUS},
     {"nom": "UnderNews", "url": "https://www.undernews.fr/feed", "categorie": ACTUS},
     {"nom": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux-rss/thematique/securite/rss.xml", "categorie": ACTUS},
-    {"nom": "IT-Connect", "url": "https://www.it-connect.fr/feed/", "categorie": ACTUS},
-    {"nom": "01net", "url": "https://www.01net.com/rss/info/flux-rss/flux-toutes-les-actualites/", "categorie": ACTUS},
-    {"nom": "Clubic", "url": "https://www.clubic.com/feed/news.rss", "categorie": ACTUS},
+    {"nom": "IT-Connect", "url": "https://www.it-connect.fr/feed/", "categorie": ACTUS, "filtre": True},
+    {"nom": "01net", "url": "https://www.01net.com/rss/info/flux-rss/flux-toutes-les-actualites/", "categorie": ACTUS, "filtre": True},
+    {"nom": "Clubic", "url": "https://www.clubic.com/feed/news.rss", "categorie": ACTUS, "filtre": True},
     {"nom": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "categorie": ACTUS, "filtre": True},
     {"nom": "Next", "url": "https://next.ink/feed/", "categorie": ACTUS, "filtre": True},
     # Threat intelligence / recherche
@@ -352,26 +349,19 @@ SOURCES_RSS = [
     {"nom": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "categorie": INTEL},
     {"nom": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "categorie": INTEL},
     {"nom": "The DFIR Report", "url": "https://thedfirreport.com/feed/", "categorie": INTEL},
-    {"nom": "AhnLab ASEC", "url": "https://asec.ahnlab.com/en/feed/", "categorie": INTEL},
     {"nom": "SentinelOne Labs", "url": "https://labs.sentinelone.com/feed/", "categorie": INTEL},
     {"nom": "Elastic Security Labs", "url": "https://www.elastic.co/security-labs/rss/feed.xml", "categorie": INTEL},
-    {"nom": "Sekoia", "url": "https://blog.sekoia.io/feed/", "categorie": INTEL},
-    {"nom": "Intezer", "url": "https://intezer.com/feed/", "categorie": INTEL},
     {"nom": "Recorded Future", "url": "https://www.recordedfuture.com/feed/", "categorie": INTEL},
-    {"nom": "Dragos", "url": "https://dragos.com/feed/", "categorie": INTEL},
     {"nom": "Red Canary", "url": "https://www.redcanary.com/blog/feed/", "categorie": INTEL},
     {"nom": "GreyNoise", "url": "https://www.greynoise.io/blog/rss.xml", "categorie": INTEL},
     {"nom": "Citizen Lab", "url": "https://citizenlab.org/category/lab-news/feed/", "categorie": INTEL},
-    {"nom": "Mandiant", "url": "https://cloud.google.com/blog/topics/threats/rss", "categorie": INTEL},
     # Blogs & OSINT
     {"nom": "Korben", "url": "https://korben.info/feed", "categorie": BLOGS, "filtre": True},
     {"nom": "Zataz", "url": "https://www.zataz.com/feed/", "categorie": BLOGS},
     {"nom": "HackerSploit", "url": "https://hackersploit.org/feed/", "categorie": BLOGS},
     {"nom": "NetworkChuck", "url": "https://networkchuck.com/feed/", "categorie": BLOGS},
     {"nom": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "categorie": BLOGS},
-    {"nom": "Schneier on Security", "url": "https://www.schneier.com/feed/atom/", "categorie": BLOGS},
     {"nom": "Risky Business", "url": "https://risky.biz/feeds/risky-business/", "categorie": BLOGS},
-    {"nom": "The Cyber Wire", "url": "https://thecyberwire.com/feeds/daily-podcast.xml", "categorie": BLOGS},
 ]
 # Pondération des sources (idée reprise de CyberWatch) : 3 = autorité, 2 = recherche,
 # 1 = actualité, 0 = blog/OSINT. Le score final est ajusté dans collecter_rss.
@@ -1175,11 +1165,11 @@ def rendre_html(groupes: dict[str, list[Article]], erreurs: list[str],
     parties = [
         '<html lang="fr"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<title>Cybersecurity live monitoring</title></head>'
+        '<title>Veille cybersécurité</title></head>'
         '<body style="font-family:Arial,sans-serif;color:#333;line-height:1.5;max-width:900px;margin:auto">',
         '<h1 style="color:#d9534f;border-bottom:2px solid #d9534f">🛡️ Veille cybersécurité & OSINT</h1>',
         '<div style="background:#f8f9fa;padding:10px;border-radius:5px;border:1px solid #ddd">'
-        f"<b>📊 Dashboard</b><br>{c['total']} article(s) · fenêtre {FENETRE_HEURES} h · "
+        f"<b>📊 Tableau de bord</b><br>{c['total']} article(s) · fenêtre {FENETRE_HEURES} h · "
         f"{c['sources_actives']}/{c['sources_total']} sources actives · {c['cves']} CVE distincte(s)<br>"
         f"🔴 Critiques : {c['critiques']} · 🟠 Importants : {c['importants']}<br>"
         f"🔥 CVE exploitées par des ransomwares : {c['cves_ransomware']} · "

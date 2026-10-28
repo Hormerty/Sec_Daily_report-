@@ -34,7 +34,12 @@ jobs:
           cache-dependency-path: requirements.txt
  
       - name: Dépendances
-        run: pip install -r requirements.txt
+      run:·pip·install·-r·requirements.txt
+      # Contrôles hors ligne du code : aucune dépendance, aucun réseau (stubs feedparser/requests).
+      # continue-on-error : un contrôle rouge ne doit jamais empêcher l'envoi du rapport.
+      - name: "Contrôles hors ligne (non bloquants)"
+        continue-on-error: true
+        run: python _check_veille.py
  
       - name: "Restaurer l'état (branche data)"
         id: restaurer

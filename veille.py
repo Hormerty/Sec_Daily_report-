@@ -746,7 +746,6 @@ RSS_SOURCES = [
     {"name": "CyberScoop", "url": "https://cyberscoop.com/feed/", "category": NEWS},
     {"name": "Security Affairs", "url": "https://securityaffairs.com/feed", "category": NEWS},
     {"name": "Wired Security", "url": "https://www.wired.com/feed/category/security/latest/rss", "category": NEWS},
-    {"name": "Infosecurity Magazine", "url": "https://www.infosecurity-magazine.com/rss/news/", "category": NEWS},
     {"name": "CSO Online", "url": "https://www.csoonline.com/feed/", "category": NEWS},
     {"name": "UnderNews", "url": "https://www.undernews.fr/feed", "category": NEWS},
     {"name": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux-rss/thematique/securite/rss.xml", "category": NEWS},

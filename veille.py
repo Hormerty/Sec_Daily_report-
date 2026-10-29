@@ -817,7 +817,7 @@ RSS_SOURCES = [
     {"name": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "category": ALERTS},
     # Vulnérabilités / exploits / avis fournisseurs
     {"name": "FortiGuard PSIRT", "url": "https://www.fortiguard.com/rss/ir.xml", "category": ALERTS},
-    {"name": "Microsoft MSRC", "url": "https://api.msrc.microsoft.com/update-guide/rss", "category": ALERTS},
+    {"name": "Microsoft MSRC", "url": "https://api.msrc.microsoft.com/update-guide/rss", "category": ALERTS, "max": 10},
     {"name": "Palo Alto Advisories", "url": "https://security.paloaltonetworks.com/rss.xml", "category": ALERTS},
     {"name": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "category": ALERTS, "max": 5},
     {"name": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "category": ALERTS},

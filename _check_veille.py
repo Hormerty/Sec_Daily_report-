@@ -7,7 +7,7 @@ import os
 import sys
 import tempfile
 import types
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Stubs minimaux : le module importe feedparser/requests/urllib3, mais les tests
@@ -501,6 +501,31 @@ with tempfile.TemporaryDirectory() as dossier:
         v.DB_FILE = ancienne_db
 
 print("SQLite layer: OK")
+
+
+# --- Statistiques hebdomadaires -------------------------------------------------
+# Régression : la requête « source » utilisait la colonne vue_le (propre à la table cves) sur la
+# table articles, qui s'appelle vu_le. SQLite levait « no such column » et la section Tendance
+# disparaissait silencieusement du mail.
+with tempfile.TemporaryDirectory() as dossier:
+    ancienne_db = v.DB_FILE
+    v.DB_FILE = str(Path(dossier) / "stats.db")
+    conn = v.open_db()
+    try:
+        base = datetime(2026, 10, 29, tzinfo=timezone.utc)
+        for i in range(3):
+            jour = (base - timedelta(days=i)).date().isoformat()
+            art = v.Article(source="S", title=f"t{i}", link=f"https://e/{i}",
+                            date=base, severity="🟠")
+            v.store_stats(conn, {"S": [art]}, {f"CVE-2026-{i}": {"epss": 0.5, "cvss": 9.0}}, jour)
+        stats = v.weekly_stats(conn, base.date().isoformat())
+        assert stats is not None, "weekly_stats ne doit pas renvoyer None"
+        assert stats["active_days"] == 2, stats
+        assert "items" in v.trend_line(stats)
+    finally:
+        conn.close()
+        v.DB_FILE = ancienne_db
+print("Weekly stats: OK")
 
 
 # --- Mode alerte -------------------------------------------------------------

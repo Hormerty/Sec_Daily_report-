@@ -1141,7 +1141,7 @@ def weekly_stats(conn: sqlite3.Connection | None, today: str) -> dict | None:
         if days < 2:  # pas assez d'historique pour une tendance
             return None
         top = conn.execute(
-            "SELECT source, COUNT(*) AS n FROM articles WHERE vu_le >= ? AND vue_le < ? "
+            "SELECT source, COUNT(*) AS n FROM articles WHERE vu_le >= ? AND vu_le < ? "
             "GROUP BY source ORDER BY n DESC, source LIMIT 3", (d7, today)).fetchall()
         return {"current": window(d7, today), "previous": window(d14, d7), "top": top,
                 "active_days": days}

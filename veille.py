@@ -865,7 +865,6 @@ RSS_SOURCES = [
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
     {"name": "Sekoia", "url": "https://blog.sekoia.io/feed/", "category": INTEL},
-    {"name": "AhnLab ASEC", "url": "https://asec.ahnlab.com/en/feed/", "category": INTEL},
     {"name": "Check Point Research", "url": "https://research.checkpoint.com/feed/", "category": INTEL},
     {"name": "Rapid7", "url": "https://www.rapid7.com/blog/rss/", "category": INTEL},
     {"name": "Proofpoint", "url": "https://www.proofpoint.com/us/threat-insight-blog.xml", "category": INTEL},
@@ -890,7 +889,6 @@ RSS_SOURCES = [
     {"name": "NetworkChuck", "url": "https://networkchuck.com/feed/", "category": BLOGS},
     {"name": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "category": BLOGS},
     {"name": "Risky Business", "url": "https://risky.biz/feeds/risky-business/", "category": BLOGS},
-    {"name": "Schneier on Security", "url": "https://www.schneier.com/blog/index.rdf", "category": BLOGS},
     {"name": "Troy Hunt", "url": "https://www.troyhunt.com/rss/", "category": BLOGS},
 ]
 
@@ -934,13 +932,13 @@ SOURCE_WEIGHTS = {
     "Graham Cluley": 2, "Security.nl": 1, "The Register": 2,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
-    "The DFIR Report": 3, "AhnLab ASEC": 2, "SentinelOne Labs": 2,
+    "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,
     "Group-IB": 3, "Wiz": 2, "ReversingLabs": 2, "watchTowr Labs": 3,
     "Elastic Security Labs": 2, "Sekoia": 2, "Recorded Future": 2,
     "Red Canary": 2, "GreyNoise": 2, "Citizen Lab": 2,
     "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
-    "Bellingcat": 1, "Risky Business": 2, "Schneier on Security": 2, "Troy Hunt": 2,
+    "Bellingcat": 1, "Risky Business": 2, "Troy Hunt": 2,
 }
 
 

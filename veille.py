@@ -151,6 +151,12 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 )
 
+# Types annoncés lors de la lecture d'un flux. Un lecteur RSS les envoie toujours ; certains
+# pare-feux refusent un client qui ne déclare rien. Volontairement limité aux appels de flux
+# pour ne pas influencer les réponses JSON (NVD, KEV, GitHub).
+_FEED_ACCEPT = ("application/rss+xml, application/atom+xml, application/xml;q=0.9, "
+                "text/xml;q=0.8, */*;q=0.7")
+
 # Empreinte IBM en Europe : chaque pays où IBM possède une entité ou un bureau.
 # Chaque entrée porte les mots-clés qui marquent un article, les liens de l'autorité
 # nationale (le CCB pour la Belgique) et un site de sécurité local fiable.
@@ -1184,7 +1190,8 @@ def create_session() -> requests.Session:
     )
     session.mount("https://", HTTPAdapter(max_retries=retry))
     session.mount("http://", HTTPAdapter(max_retries=retry))
-    session.headers.update({"User-Agent": USER_AGENT})
+    # Certains pare-feux refusent un client qui n'annonce pas de langue ; c'est sans risque ici.
+    session.headers.update({"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9,fr;q=0.6"})
     return session
 
 
@@ -1219,7 +1226,9 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
                 seen: set[str]) -> tuple[list[Article], str | None]:
     """Retourne (articles, erreur_ou_None)."""
     try:
-        response = session.get(source["url"], timeout=TIMEOUT)
+        # Accept propre aux flux : un lecteur RSS annonce les types qu'il sait lire. Cet en-tête
+        # reste local a cet appel pour ne pas modifier les reponses JSON (NVD, KEV, GitHub).
+        response = session.get(source["url"], timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
         response.raise_for_status()
     except requests.RequestException as exc:
         log.warning("%s: %s", source["name"], exc)
@@ -1317,7 +1326,7 @@ def check_feeds(session: requests.Session | None = None) -> int:
     problems: list[str] = []
     for source in RSS_SOURCES:
         try:
-            response = session.get(source["url"], timeout=TIMEOUT)
+            response = session.get(source["url"], timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
             response.raise_for_status()
             feed = feedparser.parse(response.content)
             if not feed.entries:

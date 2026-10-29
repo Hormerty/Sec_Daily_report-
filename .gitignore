@@ -1,0 +1,14 @@
+# État du bot : géré sur la branche « data » par les scripts, jamais dans main.
+seen.json
+stats.db
+kev_cache.json
+alertes_envoyees.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Divers locaux (ne jamais commiter)
+.env
+.env.*
+*.bundle

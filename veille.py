@@ -849,6 +849,8 @@ RSS_SOURCES = [
     {"name": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "category": NEWS, "filter": True},
     {"name": "Next", "url": "https://next.ink/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "TechCrunch (Security)", "url": "https://techcrunch.com/tag/cybersecurity/feed/", "category": NEWS, "filter": True, "max": 5},
+    {"name": "Graham Cluley", "url": "https://www.grahamcluley.com/feed/", "category": NEWS},
+    {"name": "Security.nl", "url": "https://www.security.nl/rss/headlines.xml", "category": NEWS, "country": "NL"},
     # Threat intelligence / recherche
     {"name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
@@ -857,6 +859,7 @@ RSS_SOURCES = [
     {"name": "AhnLab ASEC", "url": "https://asec.ahnlab.com/en/feed/", "category": INTEL},
     {"name": "Check Point Research", "url": "https://research.checkpoint.com/feed/", "category": INTEL},
     {"name": "Rapid7", "url": "https://www.rapid7.com/blog/rss/", "category": INTEL},
+    {"name": "Proofpoint", "url": "https://www.proofpoint.com/us/threat-insight-blog.xml", "category": INTEL},
     {"name": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/feed/", "category": INTEL},
     {"name": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "category": INTEL},
     {"name": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "category": INTEL},
@@ -874,6 +877,7 @@ RSS_SOURCES = [
     {"name": "NetworkChuck", "url": "https://networkchuck.com/feed/", "category": BLOGS},
     {"name": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "category": BLOGS},
     {"name": "Risky Business", "url": "https://risky.biz/feeds/risky-business/", "category": BLOGS},
+    {"name": "Schneier on Security", "url": "https://www.schneier.com/blog/index.rdf", "category": BLOGS},
 ]
 
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
@@ -912,14 +916,15 @@ SOURCE_WEIGHTS = {
     "CSO Online": 1, "UnderNews": 1,
     "Le Monde Informatique Sécurité": 1, "IT-Connect": 1, "01net": 0, "Clubic": 0,
     "Ars Technica (Security)": 1, "Next": 1, "TechCrunch (Security)": 1,
+    "Graham Cluley": 2, "Security.nl": 1,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "AhnLab ASEC": 2, "SentinelOne Labs": 2,
-    "Check Point Research": 3, "Rapid7": 2,
+    "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,
     "Elastic Security Labs": 2, "Sekoia": 2, "Recorded Future": 2,
     "Red Canary": 2, "GreyNoise": 2, "Citizen Lab": 2,
     "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
-    "Bellingcat": 1, "Risky Business": 2,
+    "Bellingcat": 1, "Risky Business": 2, "Schneier on Security": 2,
 }
 
 

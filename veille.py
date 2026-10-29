@@ -736,6 +736,50 @@ def is_relevant(text: str) -> bool:
     return bool(RE_FILTER_ROOTS.search(text) or RE_FILTER_WORDS.search(text))
 
 
+# Traduction locale des avis BSI : leurs titres suivent une formule fixe (« [NEU] [hoch] Produit :
+# Schwachstelle ermöglicht … »), donc un simple remplacement de locutions suffit. Aucune API, aucun
+# quota, aucune dépendance — et le nom du produit reste intact. Les locutions longues passent en
+# premier pour ne pas être tronquées par une plus courte.
+_DE_EN = {
+    "[NEU]": "[NEW]", "[UPDATE]": "[UPDATED]", "[UNGEPATCHT]": "[UNPATCHED]",
+    "[kritisch]": "[critical]", "[hoch]": "[high]",
+    "[mittel]": "[medium]", "[niedrig]": "[low]",
+    "Mehrere Schwachstellen ermöglichen": "Multiple vulnerabilities allow",
+    "Mehrere Schwachstellen": "Multiple vulnerabilities",
+    "Schwachstelle ermöglicht": "Vulnerability allows",
+    "Schwachstelle in": "Vulnerability in",
+    "Offenlegung von Informationen": "disclosure of information",
+    "Preisgabe von Informationen": "exposure of information",
+    "Umgehen von Sicherheitsvorkehrungen": "bypass of security controls",
+    "Ausführen von beliebigem Code": "arbitrary code execution",
+    "beliebigen Code ausführen": "execute arbitrary code",
+    "Privilegieneskalation": "privilege escalation",
+    "Sicherheitsvorkehrungen": "security controls",
+    "Cross-Site-Scripting": "cross-site scripting",
+    "Schwachstellen": "vulnerabilities",
+    "Schwachstelle": "vulnerability",
+    "Sicherheitslücke": "security flaw",
+    "Denial of Service": "denial of service",
+    "Manipulation von Dateien": "file manipulation",
+    "Angreifer": "attackers",
+    "ermöglicht": "allows",
+    "Umgehen": "bypass",
+    # Connecteurs, avec espaces pour ne pas casser un nom de produit (« Juniper und Cisco »).
+    " und ": " and ",
+    " für ": " for ",
+    " mit ": " with ",
+}
+_DE_TERMS = tuple(sorted(_DE_EN.items(), key=lambda kv: -len(kv[0])))
+
+
+def translate_german(title: str) -> str:
+    """Traduit les locutions allemandes d'un titre d'avis, sans toucher au nom du produit."""
+    for de, en in _DE_TERMS:
+        if de in title:
+            title = title.replace(de, en)
+    return title
+
+
 ALERTS = "Alerts & Vulnerabilities"
 DARKWEB = "Dark web & Ransomware"
 NEWS = "News & Media"
@@ -765,7 +809,7 @@ RSS_SOURCES = [
     {"name": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "category": ALERTS, "country": "BE"},
     {"name": "NCSC-NL", "url": "https://advisories.ncsc.nl/rss/advisories", "category": ALERTS, "country": "NL"},
     {"name": "CERT Polska", "url": "https://cert.pl/feed/", "category": ALERTS, "country": "PL"},
-    {"name": "BSI CERT-Bund", "url": "https://wid.cert-bund.de/content/public/securityAdvisory/rss", "category": ALERTS, "country": "DE"},
+    {"name": "BSI CERT-Bund", "url": "https://wid.cert-bund.de/content/public/securityAdvisory/rss", "category": ALERTS, "country": "DE", "translate": True, "max": 30},
     {"name": "CERT-SE", "url": "https://www.cert.se/feed", "category": ALERTS, "country": "SE"},
     {"name": "CERT.hr", "url": "https://www.cert.hr/feed/", "category": ALERTS, "country": "HR"},
     {"name": "SI-CERT", "url": "https://www.cert.si/feed/", "category": ALERTS, "country": "SI"},
@@ -1199,6 +1243,8 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
         if not IGNORE_SEEN and link in seen:
             continue
         title = (entry.get("title") or "Untitled item").strip()[:300]
+        if source.get("translate"):
+            title = translate_german(title)
         text = _entry_text(entry)
         if filtered and not is_relevant(text):
             skipped += 1

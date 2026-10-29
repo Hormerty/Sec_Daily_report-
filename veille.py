@@ -2028,9 +2028,8 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
     parts.append(
         '<div style="margin-top:26px;padding:12px;background:#f8f9fa;'
         'border-top:3px solid #d9534f;text-align:center">'
-        '<p style="margin:0;font-size:15px;color:#333">Generated automatically by '
-        '<b style="color:#d9534f;font-size:18px">Nours_sec_bot</b></p></div></body></html>'
-    )
+        '<p style="margin:0;font-size:15px;color:#333">Generated automatically by Nours_sec_bot</b></p></div></body></html>'
+        )
     return "\n".join(parts)
 
 

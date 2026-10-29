@@ -813,6 +813,7 @@ RSS_SOURCES = [
     {"name": "CERT-SE", "url": "https://www.cert.se/feed", "category": ALERTS, "country": "SE"},
     {"name": "CERT.hr", "url": "https://www.cert.hr/feed/", "category": ALERTS, "country": "HR"},
     {"name": "SI-CERT", "url": "https://www.cert.si/feed/", "category": ALERTS, "country": "SI"},
+    {"name": "Full Disclosure", "url": "https://seclists.org/rss/fulldisclosure.rss", "category": ALERTS},
     {"name": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "category": ALERTS},
     # Vulnérabilités / exploits / avis fournisseurs
     {"name": "FortiGuard PSIRT", "url": "https://www.fortiguard.com/rss/ir.xml", "category": ALERTS},
@@ -829,6 +830,7 @@ RSS_SOURCES = [
     {"name": "CyberScoop (Ransomware)", "url": "https://cyberscoop.com/tag/ransomware/feed/", "category": DARKWEB},
     {"name": "The Record (Ransomware)", "url": "https://therecord.media/feed?tag=ransomware", "category": DARKWEB},
     {"name": "FrenchBreaches", "url": "https://frenchbreaches.com/feed.xml", "category": DARKWEB, "country": "FR"},
+    {"name": "Databreaches.net", "url": "https://databreaches.net/feed/", "category": DARKWEB},
     # Actualités & médias
     {"name": "BleepingComputer", "url": "https://www.bleepingcomputer.com/feed/", "category": NEWS},
     {"name": "The Hacker News", "url": "https://feeds.feedburner.com/TheHackersNews", "category": NEWS},
@@ -851,6 +853,7 @@ RSS_SOURCES = [
     {"name": "TechCrunch (Security)", "url": "https://techcrunch.com/tag/cybersecurity/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "Graham Cluley", "url": "https://www.grahamcluley.com/feed/", "category": NEWS},
     {"name": "Security.nl", "url": "https://www.security.nl/rss/headlines.xml", "category": NEWS, "country": "NL"},
+    {"name": "The Register", "url": "https://www.theregister.com/headlines.atom", "category": NEWS},
     # Threat intelligence / recherche
     {"name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
@@ -860,6 +863,10 @@ RSS_SOURCES = [
     {"name": "Check Point Research", "url": "https://research.checkpoint.com/feed/", "category": INTEL},
     {"name": "Rapid7", "url": "https://www.rapid7.com/blog/rss/", "category": INTEL},
     {"name": "Proofpoint", "url": "https://www.proofpoint.com/us/threat-insight-blog.xml", "category": INTEL},
+    {"name": "Group-IB", "url": "https://www.group-ib.com/blog/feed/", "category": INTEL},
+    {"name": "Wiz", "url": "https://www.wiz.io/feed/rss.xml", "category": INTEL},
+    {"name": "ReversingLabs", "url": "https://www.reversinglabs.com/blog/rss.xml", "category": INTEL},
+    {"name": "watchTowr Labs", "url": "https://labs.watchtowr.com/rss/", "category": INTEL},
     {"name": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/feed/", "category": INTEL},
     {"name": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "category": INTEL},
     {"name": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "category": INTEL},
@@ -878,6 +885,7 @@ RSS_SOURCES = [
     {"name": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "category": BLOGS},
     {"name": "Risky Business", "url": "https://risky.biz/feeds/risky-business/", "category": BLOGS},
     {"name": "Schneier on Security", "url": "https://www.schneier.com/blog/index.rdf", "category": BLOGS},
+    {"name": "Troy Hunt", "url": "https://www.troyhunt.com/rss/", "category": BLOGS},
 ]
 
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
@@ -903,12 +911,13 @@ SOURCE_WEIGHTS = {
     "CERT-FR avis": 3, "CERT-FR alertes": 3, "CERT-EU": 3, "CISA Advisories": 3,
     "NCSC UK": 3, "JPCERT/CC": 3, "CCB Belgique": 3,
     "NCSC-NL": 3, "CERT Polska": 3,
-    "BSI CERT-Bund": 3, "CERT-SE": 3, "CERT.hr": 3, "SI-CERT": 3,
+    "BSI CERT-Bund": 3, "CERT-SE": 3, "CERT.hr": 3, "SI-CERT": 3, "Full Disclosure": 2,
     "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,
     "FortiGuard PSIRT": 3, "Microsoft MSRC": 3, "Palo Alto Advisories": 3,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
+    "Databreaches.net": 2,
     "GitHub Advisory": 3,
     "BleepingComputer": 1, "The Hacker News": 1, "Krebs on Security": 2,
     "The Record": 2, "SecurityWeek": 1, "Dark Reading": 1, "Help Net Security": 1,
@@ -916,15 +925,16 @@ SOURCE_WEIGHTS = {
     "CSO Online": 1, "UnderNews": 1,
     "Le Monde Informatique Sécurité": 1, "IT-Connect": 1, "01net": 0, "Clubic": 0,
     "Ars Technica (Security)": 1, "Next": 1, "TechCrunch (Security)": 1,
-    "Graham Cluley": 2, "Security.nl": 1,
+    "Graham Cluley": 2, "Security.nl": 1, "The Register": 2,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "AhnLab ASEC": 2, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,
+    "Group-IB": 3, "Wiz": 2, "ReversingLabs": 2, "watchTowr Labs": 3,
     "Elastic Security Labs": 2, "Sekoia": 2, "Recorded Future": 2,
     "Red Canary": 2, "GreyNoise": 2, "Citizen Lab": 2,
     "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
-    "Bellingcat": 1, "Risky Business": 2, "Schneier on Security": 2,
+    "Bellingcat": 1, "Risky Business": 2, "Schneier on Security": 2, "Troy Hunt": 2,
 }
 
 

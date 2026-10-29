@@ -765,6 +765,10 @@ RSS_SOURCES = [
     {"name": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "category": ALERTS, "country": "BE"},
     {"name": "NCSC-NL", "url": "https://advisories.ncsc.nl/rss/advisories", "category": ALERTS, "country": "NL"},
     {"name": "CERT Polska", "url": "https://cert.pl/feed/", "category": ALERTS, "country": "PL"},
+    {"name": "BSI CERT-Bund", "url": "https://wid.cert-bund.de/content/public/securityAdvisory/rss", "category": ALERTS, "country": "DE"},
+    {"name": "CERT-SE", "url": "https://www.cert.se/feed", "category": ALERTS, "country": "SE"},
+    {"name": "CERT.hr", "url": "https://www.cert.hr/feed/", "category": ALERTS, "country": "HR"},
+    {"name": "SI-CERT", "url": "https://www.cert.si/feed/", "category": ALERTS, "country": "SI"},
     {"name": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "category": ALERTS},
     # Vulnérabilités / exploits / avis fournisseurs
     {"name": "FortiGuard PSIRT", "url": "https://www.fortiguard.com/rss/ir.xml", "category": ALERTS},
@@ -807,6 +811,8 @@ RSS_SOURCES = [
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
     {"name": "Sekoia", "url": "https://blog.sekoia.io/feed/", "category": INTEL},
     {"name": "AhnLab ASEC", "url": "https://asec.ahnlab.com/en/feed/", "category": INTEL},
+    {"name": "Check Point Research", "url": "https://research.checkpoint.com/feed/", "category": INTEL},
+    {"name": "Rapid7", "url": "https://www.rapid7.com/blog/rss/", "category": INTEL},
     {"name": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/feed/", "category": INTEL},
     {"name": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "category": INTEL},
     {"name": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "category": INTEL},
@@ -828,7 +834,8 @@ RSS_SOURCES = [
 
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
 # du XML n'aurait aucun intérêt à l'écran.
-_SITE_ALIASES = {"feeds.feedburner.com": "https://thehackernews.com/"}
+_SITE_ALIASES = {"feeds.feedburner.com": "https://thehackernews.com/",
+                 "wid.cert-bund.de": "https://www.bsi.bund.de/"}
 
 
 def _site_root(url: str) -> str:
@@ -848,6 +855,7 @@ SOURCE_WEIGHTS = {
     "CERT-FR avis": 3, "CERT-FR alertes": 3, "CERT-EU": 3, "CISA Advisories": 3,
     "NCSC UK": 3, "JPCERT/CC": 3, "CCB Belgique": 3,
     "NCSC-NL": 3, "CERT Polska": 3,
+    "BSI CERT-Bund": 3, "CERT-SE": 3, "CERT.hr": 3, "SI-CERT": 3,
     "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,
     "FortiGuard PSIRT": 3, "Microsoft MSRC": 3, "Palo Alto Advisories": 3,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
@@ -863,6 +871,7 @@ SOURCE_WEIGHTS = {
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "AhnLab ASEC": 2, "SentinelOne Labs": 2,
+    "Check Point Research": 3, "Rapid7": 2,
     "Elastic Security Labs": 2, "Sekoia": 2, "Recorded Future": 2,
     "Red Canary": 2, "GreyNoise": 2, "Citizen Lab": 2,
     "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,

@@ -84,7 +84,7 @@ DB_FILE = "stats.db"             # statistiques historiques SQLite (commité aus
 DB_RETENTION_DAYS = 400
 KEV_CACHE_FILE = "kev_cache.json"  # dernier catalogue KEV réussi (secours hors ligne)
 
-MAX_EMAIL_ARTICLES = _env_int("MAX_EMAIL_ARTICLES", 400, 20, "MAX_ARTICLES_EMAIL")
+MAX_EMAIL_ARTICLES = _env_int("MAX_EMAIL_ARTICLES", 1000, 20, "MAX_ARTICLES_EMAIL")
 # 0 = aucun plafond de taille : le message part complet et Gmail en tronque seulement l'affichage
 # (~102 Ko), la suite restant accessible via « Afficher tout le message ». Une valeur > 0 réactive
 # la réduction automatique du nombre d'articles.
@@ -94,7 +94,7 @@ EMAIL_ENCODING = _env_str("EMAIL_ENCODING", "base64").lower()
 
 WINDOW_HOURS = _env_int("WINDOW_HOURS", 48, 1, "FENETRE_HEURES")  # 48 h : rapport glissant sur 2 jours
 KEV_DAYS = _env_int("KEV_DAYS", 2, 1, "CISA_JOURS")  # 2 : KEV ajoutées sur les 2 derniers jours
-MAX_PER_SOURCE = 15
+MAX_PER_SOURCE = 30
 MAX_KEV = 25
 TIMEOUT = 15
 

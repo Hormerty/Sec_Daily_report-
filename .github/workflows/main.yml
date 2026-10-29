@@ -62,7 +62,7 @@ jobs:
           # "1" = rapport glissant : les articles de la veille réapparaissent dans le mail du jour
           # (choix d'origine du script). "0" = seulement les nouveautés depuis le dernier mail.
           IGNORER_DEJA_VUS: "1"
-          MAX_EMAIL_ARTICLES: "400"
+          MAX_EMAIL_ARTICLES: "1000"
           MAX_EMAIL_BYTES: "0"          # 0 = pas de réduction : Gmail tronque l'affichage seul
         run: python veille.py
  

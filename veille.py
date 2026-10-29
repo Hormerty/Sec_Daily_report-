@@ -1232,6 +1232,10 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
         return [], f"{source['name']}: unreadable feed ({type(exc).__name__})"
 
     if feed.bozo and not feed.entries:
+        # Sans ce message, une reponse anti-bot (200 mais pas du XML) faisait disparaitre la
+        # source du journal sans laisser aucune trace : panne invisible.
+        log.warning("%s: unreadable feed (no entries, bozo=%s)",
+                    source["name"], feed.get("bozo_exception"))
         return [], f"{source['name']}: unreadable feed"
 
     articles = []

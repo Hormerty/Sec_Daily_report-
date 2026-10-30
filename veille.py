@@ -910,6 +910,9 @@ RSS_SOURCES = [
     {"name": "FortiGuard PSIRT", "url": "https://www.fortiguard.com/rss/ir.xml", "category": ALERTS},
     {"name": "Microsoft MSRC", "url": "https://api.msrc.microsoft.com/update-guide/rss", "category": ALERTS, "max": 10},
     {"name": "Palo Alto Advisories", "url": "https://security.paloaltonetworks.com/rss.xml", "category": ALERTS},
+    {"name": "Cisco PSIRT", "url": "https://sec.cloudapps.cisco.com/security/center/psirtrss20/CiscoSecurityAdvisory.xml", "category": ALERTS},
+    {"name": "oss-security", "url": "https://seclists.org/rss/oss-sec.rss", "category": ALERTS, "filter": True},
+    {"name": "Chrome Releases", "url": "https://chromereleases.googleblog.com/feeds/posts/default", "category": ALERTS, "filter": True, "max": 5},
     {"name": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "category": ALERTS, "max": 5},
     {"name": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "category": ALERTS},
     {"name": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "category": ALERTS},
@@ -947,6 +950,7 @@ RSS_SOURCES = [
     {"name": "Graham Cluley", "url": "https://www.grahamcluley.com/feed/", "category": NEWS},
     {"name": "Security.nl", "url": "https://www.security.nl/rss/headlines.xml", "category": NEWS, "country": "NL"},
     {"name": "The Register", "url": "https://www.theregister.com/headlines.atom", "category": NEWS},
+    {"name": "Infosecurity Magazine", "url": "https://www.infosecurity-magazine.com/rss/news/", "category": NEWS},
     # Threat intelligence / recherche
     {"name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
@@ -969,6 +973,13 @@ RSS_SOURCES = [
     {"name": "Red Canary", "url": "https://www.redcanary.com/blog/feed/", "category": INTEL},
     {"name": "GreyNoise", "url": "https://www.greynoise.io/blog/rss.xml", "category": INTEL},
     {"name": "Citizen Lab", "url": "https://citizenlab.org/category/lab-news/feed/", "category": INTEL},
+    {"name": "Google Cloud Threat Intelligence", "url": "https://cloudblog.withgoogle.com/topics/threat-intelligence/rss/", "category": INTEL},
+    {"name": "CrowdStrike", "url": "https://www.crowdstrike.com/en-us/blog/feed", "category": INTEL},
+    {"name": "Volexity", "url": "https://www.volexity.com/feed/", "category": INTEL},
+    {"name": "NVISO Labs", "url": "https://blog.nviso.eu/feed/", "category": INTEL, "country": "BE"},
+    {"name": "Horizon3.ai", "url": "https://www.horizon3.ai/feed/", "category": INTEL},
+    {"name": "PortSwigger Research", "url": "https://portswigger.net/research/rss", "category": INTEL},
+    {"name": "Hackmageddon", "url": "https://www.hackmageddon.com/feed/", "category": INTEL},
     # Blogs & OSINT
     {"name": "Korben", "url": "https://korben.info/feed", "category": BLOGS, "filter": True},
     {"name": "Zataz", "url": "https://www.zataz.com/feed/", "category": BLOGS},
@@ -977,6 +988,9 @@ RSS_SOURCES = [
     {"name": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "category": BLOGS},
     {"name": "Risky Business", "url": "https://risky.biz/feeds/risky-business/", "category": BLOGS},
     {"name": "Troy Hunt", "url": "https://www.troyhunt.com/rss/", "category": BLOGS},
+    {"name": "Schneier on Security", "url": "https://www.schneier.com/feed/atom/", "category": BLOGS},
+    {"name": "DoublePulsar", "url": "https://doublepulsar.com/feed", "category": BLOGS},
+    {"name": "Pen Test Partners", "url": "https://www.pentestpartners.com/feed/", "category": BLOGS},
 ]
 
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
@@ -1006,6 +1020,7 @@ SOURCE_WEIGHTS = {
     "BSI CERT-Bund": 3, "CERT-SE": 3, "CERT.hr": 3, "SI-CERT": 3, "Full Disclosure": 2,
     "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,
     "FortiGuard PSIRT": 3, "Microsoft MSRC": 3, "Palo Alto Advisories": 3,
+    "Cisco PSIRT": 3, "oss-security": 2, "Chrome Releases": 2,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
@@ -1018,15 +1033,19 @@ SOURCE_WEIGHTS = {
     "Le Monde Informatique Sécurité": 1, "IT-Connect": 1, "01net": 0, "Clubic": 0,
     "Ars Technica (Security)": 1, "Next": 1, "TechCrunch (Security)": 1,
     "Graham Cluley": 2, "Security.nl": 1, "The Register": 2,
+    "Infosecurity Magazine": 1,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,
     "Group-IB": 3, "Wiz": 2, "ReversingLabs": 2, "watchTowr Labs": 3,
+    "Google Cloud Threat Intelligence": 3, "CrowdStrike": 2, "Volexity": 3,
+    "NVISO Labs": 2, "Horizon3.ai": 2, "PortSwigger Research": 1, "Hackmageddon": 1,
     "Elastic Security Labs": 2, "Sekoia": 2, "Recorded Future": 2,
     "Red Canary": 2, "GreyNoise": 2, "Citizen Lab": 2,
     "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
     "Bellingcat": 1, "Risky Business": 2, "Troy Hunt": 2,
+    "Schneier on Security": 1, "DoublePulsar": 2, "Pen Test Partners": 1,
 }
 
 

@@ -843,7 +843,9 @@ RSS_SOURCES = [
     {"name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/", "category": NEWS},
     {"name": "The Record", "url": "https://therecord.media/feed", "category": NEWS},
     {"name": "SecurityWeek", "url": "https://www.securityweek.com/feed/", "category": NEWS},
-    {"name": "Dark Reading", "url": "https://www.darkreading.com/rss.xml", "category": NEWS},
+    # Dark Reading ne publie plus de flux par rubrique (tous en 404) : le flux global est filtre
+    # sur les mots-cles pour ecarter les sujets carriere/gouvernance, comme le faisait la rubrique.
+    {"name": "Dark Reading", "url": "https://www.darkreading.com/rss.xml", "category": NEWS, "filter": True},
     {"name": "Help Net Security", "url": "https://www.helpnetsecurity.com/feed/", "category": NEWS},
     {"name": "CyberScoop", "url": "https://cyberscoop.com/feed/", "category": NEWS},
     {"name": "Security Affairs", "url": "https://securityaffairs.com/feed", "category": NEWS},

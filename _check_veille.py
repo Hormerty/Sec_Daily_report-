@@ -582,6 +582,17 @@ assert "Outlook" in v.detect_stack("Microsoft Outlook RCE")
 print("Breach scoring / stack noise: OK")
 
 
+# --- Exploitation seule = pastille -------------------------------------------------
+# « Actively exploited » valait 5, un point sous le seuil de 6 : sept articles reels (PHP2Shell,
+# Drupal, ASA/FTD, VeloCloud) ressortaient sans marque alors qu'ils annoncaient l'exploitation.
+for titre in ("CISA confirms PHP2Shell vulnerabilities now exploited in attacks",
+              "Cisco Patches Actively Exploited ASA and FTD VPN Flaw That Can Crash Firewalls",
+              "Drupal warns of critical Commerce Core flaw exploited in attacks"):
+    score, _ = v.compute_criticality(titre)
+    assert score >= v.IMPORTANT_THRESHOLD, (titre, score)
+print("Exploitation badge: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

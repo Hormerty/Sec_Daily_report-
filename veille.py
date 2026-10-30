@@ -730,7 +730,10 @@ def compute_criticality(text: str) -> tuple[int, str]:
     if _positive(RE_RANSOM, text):
         score += 3
     if _positive(RE_EXPLOITED, text):
-        score += 5
+        # 6 et non 5 : « exploite activement » suffit a meriter une pastille a lui seul. A 5, ces
+        # titres tombaient un point sous le seuil et ressortaient sans marque (constate sur 7
+        # articles reels : PHP2Shell, Drupal, ASA/FTD, VeloCloud).
+        score += 6
     score += _breach_bonus(text)
     if RE_MASS_IMPACT.search(text):
         score += 3

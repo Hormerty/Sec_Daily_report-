@@ -926,7 +926,7 @@ SOURCE_WEIGHTS = {
     "Databreaches.net": 2,
     "GitHub Advisory": 3,
     "BleepingComputer": 1, "The Hacker News": 1, "Krebs on Security": 2,
-    "The Record": 2, "SecurityWeek": 1, "Dark Reading": 1, "Help Net Security": 1,
+    "The Record": 2, "SecurityWeek": 1, "Dark Reading": 2, "Help Net Security": 1,
     "CyberScoop": 2, "Security Affairs": 1, "Wired Security": 1,
     "CSO Online": 1, "UnderNews": 1,
     "Le Monde Informatique Sécurité": 1, "IT-Connect": 1, "01net": 0, "Clubic": 0,

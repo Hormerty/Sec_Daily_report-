@@ -53,6 +53,14 @@ jobs:
       - name: "Contrôles hors ligne (non bloquants)"
         continue-on-error: true
         run: python _check_veille.py
+
+      # Les tests pytest existaient mais n'etaient lances nulle part : ils ne protegeaient rien.
+      # continue-on-error : comme les controles hors ligne, un test rouge ne bloque pas l'envoi.
+      - name: "Tests pytest (non bloquants)"
+        continue-on-error: true
+        run: |
+          pip install -r requirements-dev.txt
+          python -m pytest -q || echo "::warning::Tests pytest en echec"
  
       - name: "Restaurer l'état (branche data)"
         id: restaurer

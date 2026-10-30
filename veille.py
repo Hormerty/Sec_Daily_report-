@@ -589,8 +589,19 @@ def detect_countries(text: str) -> tuple[str, ...]:
     return tuple(code for code, pattern in RE_COUNTRIES.items() if pattern.search(text))
 
 
+# Etudes de marche (« Cybersecurity Outlook 2027 », « Threat Outlook ») : « outlook » y designe un
+# pronostic, pas le client mail. On neutralise ces tournures avant la detection de stack.
+RE_STACK_NOISE = re.compile(
+    r"\b(?:cyber\s?security|security|threats?|technology|industry|market|it|ransomware|risk)"
+    r"\s+outlook\b"
+    r"|\boutlook\s+20\d\d\b",
+    re.IGNORECASE,
+)
+
+
 def detect_stack(text: str) -> tuple[str, ...]:
     """Produits de ta stack cités dans le texte (Box, Slack, Teams, Outlook)."""
+    text = RE_STACK_NOISE.sub(" ", text)
     found = [name for name, pattern in RE_STACK.items() if pattern.search(text)]
     if "Box" not in found and RE_BOX_BARE.search(text):
         found.insert(0, "Box")
@@ -651,6 +662,62 @@ def severity_badge(score: int) -> str:
     return ""
 
 
+# Fuites de donnees : categorie a part entiere, distincte des vulnerabilites. Sans ces motifs, un
+# vol de plusieurs millions de comptes ne declenchait rien du tout (score 0 sur des titres reels).
+RE_BREACH = re.compile(
+    r"\b(?:"
+    r"data\s+breach"
+    r"|(?:data|records|customers?|accounts?|patients?|credentials?)\s+(?:breached|leaked|exposed|stolen)"
+    r"|breach(?:ed)?\s+(?:data|records|accounts|customers)"
+    r"|leak(?:ed|s)?\s+(?:data|database|credentials|records|source\s+code)"
+    r"|(?:data|database)\s+leak"
+    r"|records\s+exposed"
+    r"|(?:key|keys|token|tokens|password|passwords|secret|secrets)\s+(?:leaked|exposed|stolen)"
+    r"|millions?\s+of\s+(?:records|accounts|customers|users)"
+    r"|fuite\s+de\s+donn\w*"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# L'echelle est ce qui separe une fuite ordinaire d'un incident majeur.
+RE_BREACH_SCALE = re.compile(
+    r"\b(?:"
+    r"\d[\d.,\s]*\s*(?:million|milliard|thousand)\b"
+    r"|millions?|milliards?|billions?"
+    r"|(?:records|patients|accounts|customers|comptes|utilisateurs)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+# Identifiants debloques : au moins aussi grave qu'une fuite massive de donnees personnelles.
+RE_CRED_LEAK = re.compile(
+    r"\b(?:master\s+key|api\s+key|private\s+key|credentials?|tokens?|passwords?)"
+    r"\s+(?:leaked|exposed|stolen)",
+    re.IGNORECASE,
+)
+
+
+def _breach_bonus(text: str) -> int:
+    """+5 pour une fuite, +3 de plus si des personnes sont touchees ou des identifiants debloques.
+    Plafond volontaire a 8 : une fuite ne doit jamais suffire a declencher l'alerte immediate,
+    qui reste reservee aux exploitations."""
+    if not RE_BREACH.search(text):
+        return 0
+    if RE_BREACH_SCALE.search(text) or RE_CRED_LEAK.search(text):
+        return 8
+    return 5
+
+
+# Impact de masse : un titre sans CVE qui annonce des millions de machines touchees n'est pas un
+# article anodin. Volontairement modeste (+3) pour ne pas confondre avec du marketing.
+RE_MASS_IMPACT = re.compile(
+    r"\b(?:millions?|thousands?|centaines de milliers)\s+"
+    r"(?:of\s+)?(?:sites?|servers?|devices?|users?|machines?|routers?|organi[sz]ations?|sites web)\b",
+    re.IGNORECASE,
+)
+
+
 def compute_criticality(text: str) -> tuple[int, str]:
     score = 0
     if RE_CVE.search(text):
@@ -661,6 +728,9 @@ def compute_criticality(text: str) -> tuple[int, str]:
         score += 3
     if _positive(RE_EXPLOITED, text):
         score += 5
+    score += _breach_bonus(text)
+    if RE_MASS_IMPACT.search(text):
+        score += 3
     if _positive(RE_CAMPAIGN, text):
         score += 3
     if _positive(RE_THREATS, text):

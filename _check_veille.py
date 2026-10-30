@@ -559,6 +559,29 @@ with tempfile.TemporaryDirectory() as dossier:
 print("Daily send guard: OK")
 
 
+# --- Scoring des fuites de donnees et faux positifs de stack ----------------
+# Ces deux garde-fous viennent d'une relecture externe : avant correction, une fuite de plusieurs
+# millions de comptes valait 0, et « Cybersecurity Outlook 2027 » etait pris pour le client mail.
+for titre in ("Capcom confirms data breach affecting 11.7 million accounts",
+              "Quest Diagnostics data breach exposes patient records",
+              "LiteLLM master key leaked"):
+    score, _ = v.compute_criticality(titre)
+    assert score >= v.IMPORTANT_THRESHOLD, (titre, score)
+
+# Aucun badge sur une actualite anodine ni sur une etude de marche.
+for titre in ("Microsoft announces new pricing for cloud services",
+              "New report: state of cloud security 2027"):
+    score, _ = v.compute_criticality(titre)
+    assert score < v.IMPORTANT_THRESHOLD, (titre, score)
+
+# Le produit reste detecte, l'etude de marche non.
+assert "Outlook" not in v.detect_stack("Cybersecurity Outlook 2027")
+assert "Outlook" not in v.detect_stack("Threat Outlook 2028")
+assert "Outlook" in v.detect_stack("Outlook zero-day exploited in the wild")
+assert "Outlook" in v.detect_stack("Microsoft Outlook RCE")
+print("Breach scoring / stack noise: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

@@ -64,3 +64,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/etat_sauvegarder.sh
+
+      # Sans ce ping, une panne d'alerte.yml ne produirait que du silence.
+      - name: Supervision (ping de succès)
+        if: success()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: |
+          if [ -z "$HC_URL" ]; then echo "HEALTHCHECK_URL non défini : ping ignoré."; exit 0; fi
+          curl -fsS -m 10 --retry 3 "$HC_URL" >/dev/null || echo "::warning::Ping healthchecks échoué"
+
+      - name: Supervision (ping d'échec)
+        if: failure()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: |
+          if [ -z "$HC_URL" ]; then exit 0; fi
+          curl -fsS -m 10 --retry 3 "$HC_URL/fail" >/dev/null || echo "::warning::Ping healthchecks échoué"

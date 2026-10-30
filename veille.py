@@ -500,10 +500,13 @@ KEYWORDS_TARGETS = [
     # Matériel et fournisseurs locaux
     "amag", "symmetry", "securitas", "genetec", "voo", "ores",
     "anker", "solix", "tp-link", "tplink",
+    # Acces distant d'entreprise : meme famille que Citrix, Ivanti et les SSL-VPN.
+    "teamviewer",
 ]
 # Signaux d'exploitation : pondérés plus fort que la simple stack.
 KEYWORDS_THREATS = [
-    "rce", "remote code execution", "lpe", "privilege escalation", "privesc",
+    "rce", "remote code execution", "arbitrary code execution", "execute arbitrary code",
+    "lpe", "privilege escalation", "privesc",
     "auth bypass", "authentication bypass", "deserialization", "path traversal",
     "command injection", "sql injection", "ssrf", "xxe", "supply chain",
     "dependency confusion", "poc", "proof of concept", "n-day",

@@ -612,7 +612,9 @@ def detect_stack(text: str) -> tuple[str, ...]:
 
 # --- Score de criticité --------------------------------------------------------
 CRITICAL_THRESHOLD = 10    # 🔴
-IMPORTANT_THRESHOLD = 6    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
+IMPORTANT_THRESHOLD = 5    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
+# Abaisse de 6 a 5 apres mesure sur 1346 articles reels : une CVE sur un produit suivi vaut deja
+# 5 (3 + 2), et ces articles ressortaient sans marque. Effet : 143 -> 176 pastilles (11 % -> 13 %).
 
 # Identifiant CVE : au moins 4 chiffres à la fin (format officiel). Les médias écrivent parfois
 # le tiret avec un caractère typographique (‐ ‑ ‒ – — −) : on l'accepte et on le normalise.

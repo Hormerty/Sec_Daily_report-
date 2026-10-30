@@ -95,6 +95,12 @@ EMAIL_ENCODING = _env_str("EMAIL_ENCODING", "base64").lower()
 WINDOW_HOURS = _env_int("WINDOW_HOURS", 48, 1, "FENETRE_HEURES")  # 48 h : rapport glissant sur 2 jours
 KEV_DAYS = _env_int("KEV_DAYS", 2, 1, "CISA_JOURS")  # 2 : KEV ajoutées sur les 2 derniers jours
 MAX_PER_SOURCE = 30
+
+# GitHub abandonne parfois des déclenchements planifiés (documenté « best-effort ») : le workflow
+# quotidien est donc planifié plusieurs fois dans la matinée, et cette clé retient la date du
+# dernier rapport réellement envoyé, pour ne jamais envoyer deux fois le même jour.
+META_DERNIERE_VEILLE = "derniere_veille"
+FORCE_VEILLE = _env_bool("FORCE_VEILLE", False)
 MAX_KEV = 25
 TIMEOUT = 15
 
@@ -1021,6 +1027,9 @@ def open_db() -> sqlite3.Connection | None:
             );
             CREATE INDEX IF NOT EXISTS idx_articles_date ON articles(vu_le);
             CREATE INDEX IF NOT EXISTS idx_cves_date ON cves(vue_le);
+            CREATE TABLE IF NOT EXISTS meta (
+                cle TEXT PRIMARY KEY, valeur TEXT NOT NULL
+            );
             """
         )
         # Migration : les bases créées par les anciennes versions n'ont pas la colonne « ransomware »
@@ -1032,6 +1041,29 @@ def open_db() -> sqlite3.Connection | None:
     except sqlite3.Error as exc:
         log.warning("Stats database unavailable (%s): report sent without history", exc)
         return None
+
+
+def meta_get(conn: sqlite3.Connection | None, cle: str) -> str | None:
+    """Table clé/valeur minuscule : retient la date du dernier rapport envoyé."""
+    if conn is None:
+        return None
+    try:
+        row = conn.execute("SELECT valeur FROM meta WHERE cle = ?", (cle,)).fetchone()
+        return row[0] if row else None
+    except sqlite3.Error:
+        return None
+
+
+def meta_set(conn: sqlite3.Connection | None, cle: str, valeur: str) -> None:
+    if conn is None:
+        return
+    try:
+        conn.execute(
+            "INSERT INTO meta (cle, valeur) VALUES (?, ?) "
+            "ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur", (cle, valeur))
+        conn.commit()
+    except sqlite3.Error as exc:
+        log.warning("Could not store %s: %s", cle, exc)
 
 
 def load_cvss_cache(conn: sqlite3.Connection | None) -> dict[str, float]:
@@ -2337,6 +2369,14 @@ def main() -> int:
     session = create_session()
     conn = open_db()
 
+    # Garde de redondance : si le rapport du jour est déjà parti (créneaux précédents), on s'arrête
+    # ici, avant toute collecte. FORCE_VEILLE=1 permet de passer outre (test ou envoi manuel voulu).
+    if not FORCE_VEILLE and meta_get(conn, META_DERNIERE_VEILLE) == today:
+        log.info("Daily report already sent on %s: nothing to do.", today)
+        if conn is not None:
+            conn.close()  # sortie anticipée : la connexion ne passe pas par le finally
+        return 0
+
     try:
         try:
             results = [collect_cisa_kev(session, seen)]
@@ -2421,6 +2461,7 @@ def main() -> int:
                         (html_size + text_size) // 1000)
 
         send_email(config, subject, html_report, text_report)
+        meta_set(conn, META_DERNIERE_VEILLE, today)
 
         # On ne mémorise qu'APRÈS un envoi réussi : si l'envoi échoue, rien n'est perdu.
         all_links = {a.link for items in groups.values() for a in items}

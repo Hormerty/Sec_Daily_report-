@@ -528,6 +528,37 @@ with tempfile.TemporaryDirectory() as dossier:
 print("Weekly stats: OK")
 
 
+# --- Garde anti-double-envoi (redondance de planification) -------------------
+# Le workflow quotidien est planifié trois fois : si un créneau a déjà envoyé le rapport du jour,
+# les suivants doivent s'arrêter avant toute collecte.
+with tempfile.TemporaryDirectory() as dossier:
+    ancienne_db = v.DB_FILE
+    v.DB_FILE = str(Path(dossier) / "garde.db")
+    try:
+        conn = v.open_db()
+        v.meta_set(conn, v.META_DERNIERE_VEILLE, datetime.now(v.TZ).date().isoformat())
+        assert v.meta_get(conn, v.META_DERNIERE_VEILLE) is not None
+        conn.close()
+
+        envois = []
+        with mock.patch.multiple(
+            v,
+            validate_config=lambda: ("bot@example.com", "secret", "dest@example.com"),
+            load_seen_links=lambda: [],
+            create_session=lambda: object(),
+            send_email=lambda *a, **k: envois.append(1),
+            collect_cisa_kev=lambda *a, **k: ([], None),
+            collect_github_advisories=lambda *a, **k: ([], None),
+            collect_source=lambda *a, **k: ([], None),
+        ):
+            code = v.main()
+        assert code == 0, code
+        assert not envois, "un second envoi le meme jour ne doit pas partir"
+    finally:
+        v.DB_FILE = ancienne_db
+print("Daily send guard: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

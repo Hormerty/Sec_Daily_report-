@@ -2,13 +2,22 @@ name: Veille cybersécurité
  
 on:
   schedule:
-    - cron: "58 5 * * *"   # 05:58 UTC chaque jour (hors heure pile : moins de retards)
+    # GitHub traite les crons en « best-effort » : des déclenchements sont retardés, voire
+    # abandonnés. D'où trois créneaux dans la matinée ; une garde dans veille.py (clé
+    # « derniere_veille » de la branche data) empêche un second envoi le même jour.
+    - cron: "58 5 * * *"   # 05:58 UTC (hors heure pile : moins de retards)
+    - cron: "28 7 * * *"   # relance si le premier créneau a été abandonné
+    - cron: "58 8 * * *"   # dernier filet de sécurité
   workflow_dispatch:
     inputs:
       fenetre_heures:
         description: "Fenêtre de collecte en heures (mettre 72 pour rattraper un run manqué)"
         required: false
         default: "48"
+      forcer:
+        description: "Renvoyer même si le rapport du jour est déjà parti (true / false)"
+        required: false
+        default: "false"
  
 # Lecture seule par défaut : l'écriture n'est accordée qu'au job, pour pousser la branche « data ».
 permissions:
@@ -64,6 +73,8 @@ jobs:
           IGNORER_DEJA_VUS: "1"
           MAX_EMAIL_ARTICLES: "1000"
           MAX_EMAIL_BYTES: "0"          # 0 = pas de réduction : Gmail tronque l'affichage seul
+          # Créneaux de secours : sans ce forçage, un run qui suit un envoi réussi ne fait rien.
+          FORCE_VEILLE: ${{ inputs.forcer || '0' }}
         run: python veille.py
  
       # Jamais si la restauration a échoué : on n'écrase pas l'historique avec un état vide.

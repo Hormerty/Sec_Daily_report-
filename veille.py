@@ -887,6 +887,7 @@ RSS_SOURCES = [
     {"name": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "category": ALERTS},
     {"name": "NCSC UK", "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "category": ALERTS, "country": "GB"},
     {"name": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "category": ALERTS},
+    {"name": "CERT/CC", "url": "https://kb.cert.org/vuls/atomfeed/", "category": ALERTS},
     {"name": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "category": ALERTS, "country": "BE"},
     {"name": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "category": ALERTS, "country": "BE"},
     {"name": "NCSC-NL", "url": "https://advisories.ncsc.nl/rss/advisories", "category": ALERTS, "country": "NL"},
@@ -992,6 +993,7 @@ SOURCE_LINKS[SOURCE_GITHUB] = "https://github.com/advisories"
 SOURCE_WEIGHTS = {
     "CERT-FR avis": 3, "CERT-FR alertes": 3, "CERT-EU": 3, "CISA Advisories": 3,
     "NCSC UK": 3, "JPCERT/CC": 3, "CCB Belgique": 3,
+    "CERT/CC": 3,
     "NCSC-NL": 3, "CERT Polska": 3,
     "BSI CERT-Bund": 3, "CERT-SE": 3, "CERT.hr": 3, "SI-CERT": 3, "Full Disclosure": 2,
     "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,

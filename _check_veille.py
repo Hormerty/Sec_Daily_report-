@@ -359,6 +359,7 @@ with mock.patch.multiple(
     open_db=lambda: None,
     collect_cisa_kev=lambda session, seen: ([kev_article], None),
     collect_github_advisories=lambda session, since: ([], None),
+    collect_ransomware_victims=lambda *a, **k: ([], None),
     collect_source=lambda source, since, seen: ([], None),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -385,6 +386,7 @@ with mock.patch.multiple(
     open_db=lambda: None,
     collect_cisa_kev=lambda session, seen: ([], "CISA KEV : boom"),
     collect_github_advisories=lambda session, since: ([], "GitHub Advisory : boom"),
+    collect_ransomware_victims=lambda *a, **k: ([], "Ransomware.live (victims) : boom"),
     collect_source=lambda source, since, seen: ([], f"{source['name']} : boom"),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -549,6 +551,7 @@ with tempfile.TemporaryDirectory() as dossier:
             send_email=lambda *a, **k: envois.append(1),
             collect_cisa_kev=lambda *a, **k: ([], None),
             collect_github_advisories=lambda *a, **k: ([], None),
+            collect_ransomware_victims=lambda *a, **k: ([], None),
             collect_source=lambda *a, **k: ([], None),
         ):
             code = v.main()
@@ -642,6 +645,7 @@ with tempfile.TemporaryDirectory() as dossier:
             create_session=lambda: object(),
             collect_cisa_kev=lambda session, seen: ([nouveau], None),
             collect_github_advisories=lambda session, since: ([], None),
+            collect_ransomware_victims=lambda *a, **k: ([], None),
             collect_source=lambda source, since, seen: ([], None),
             enrich=lambda session, groups, cache: {},
             open_db=lambda: None,

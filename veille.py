@@ -6,6 +6,7 @@ atomic state writes, KEV cache, EPSS from CSV and a hard e-mail size cap.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import gzip
 import html
@@ -15,6 +16,7 @@ import logging
 import os
 import re
 import smtplib
+import socket
 import sqlite3
 import ssl
 import sys
@@ -879,6 +881,7 @@ CATEGORY_ORDER = [ALERTS, DARKWEB, NEWS, INTEL, BLOGS]
 SOURCE_RANSOMWARE_LIVE = "Ransomware.live"
 SOURCE_KEV = "CISA KEV"
 SOURCE_GITHUB = "GitHub Advisory"
+SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
 
 # Sources hors flux RSS, collectées par du code dédié : CISA KEV et GitHub Advisory.
 EXTRA_SOURCES = 2
@@ -1025,6 +1028,7 @@ SOURCE_WEIGHTS = {
     "Cisco PSIRT": 3, "oss-security": 2, "Chrome Releases": 2,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
+    "Ransomware.live (victims)": 2,
     "RansomLook": 2,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
     "Databreaches.net": 2,
@@ -1529,6 +1533,92 @@ def _write_kev_cache(vulns: list[dict]) -> None:
         KEV_CACHE_FILE,
         {"fetched_at": datetime.now(timezone.utc).isoformat(), "vulnerabilities": reduced},
     )
+
+
+@contextlib.contextmanager
+def ipv4_only():
+    """Force IPv4 le temps d'un appel.
+
+    L'API Ransomware.live publie un enregistrement AAAA, mais le vhost IPv6 sert le site et
+    renvoie 404 sur /v2/... : depuis un reseau qui privilegie IPv6 (Windows, la plupart des
+    operateurs), l'API parait hors service alors qu'elle repond parfaitement en IPv4.
+    """
+    original = socket.getaddrinfo
+
+    def _filtre(*args, **kwargs):
+        return [r for r in original(*args, **kwargs) if r[0] == socket.AF_INET]
+
+    socket.getaddrinfo = _filtre
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = original
+
+
+def collect_ransomware_victims(session: requests.Session, since: datetime):
+    """Victimes publiees sur les sites de fuite (API v2), avec leur pays en champ structure.
+
+    Complementaire du flux RSS Ransomware.live : celui-ci suit la couverture de presse, pas les
+    publications des groupes. Aucun recouvrement constate entre les deux jeux de liens.
+    """
+    url = "https://api.ransomware.live/v2/recentvictims"
+    try:
+        with ipv4_only():
+            response = session.get(url, timeout=TIMEOUT)
+            response.raise_for_status()
+            victimes = response.json()
+        if not isinstance(victimes, list):
+            raise ValueError("invalid payload")
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        log.warning("%s: %s", SOURCE_RANSOMWARE_API, exc)
+        return [], f"{SOURCE_RANSOMWARE_API}: {exc}"
+
+    articles = []
+    for v in victimes:
+        if not isinstance(v, dict):
+            continue
+        try:
+            date = datetime.strptime(str(v.get("attackdate") or "")[:10], "%Y-%m-%d")
+            date = date.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if date < since:
+            continue
+        victim = str(v.get("victim") or "").strip()
+        group = str(v.get("group") or "").strip()
+        link = str(v.get("url") or "").strip()
+        if not victim or not link.startswith(("http://", "https://")):
+            continue
+        code = str(v.get("country") or "").strip().upper()
+        # Le pays vient du champ structure : la rubrique nationale se remplit sans detection textuelle.
+        pays = (code,) if code in COUNTRIES else ()
+        # Meme logique que le KEV : la publication d'une victime est une attaque averee, donc un
+        # socle de points au-dessus de la detection par mots-cles.
+        texte = f"{victim} {group} ransomware attack"
+        score, _ = compute_criticality(texte)
+        score += 3
+        if pays:
+            # Meme regle que la detection textuelle : siege (BE/UE) plus lourd qu'un autre pays.
+            score += 2 if code in ("BE", "EU") else 1
+        detail = " · ".join(x for x in (
+            f"Groupe : {group}" if group else "",
+            f"Secteur : {v.get('activity')}" if v.get("activity") else "",
+            f"Données : {v.get('data_size')}" if v.get("data_size") else "",
+        ) if x)
+        articles.append(Article(
+            source=SOURCE_RANSOMWARE_API,
+            title=(f"{victim} — revendiqué par {group}" if group else victim)[:300],
+            link=link,
+            date=date,
+            category=DARKWEB,
+            detail=detail,
+            tags=analyse_badges(texte, pays),
+            score=score,
+            severity=severity_badge(score),
+            countries=pays,
+        ))
+    log.info("%s: %d new", SOURCE_RANSOMWARE_API, len(articles))
+    return articles, None
 
 
 def collect_cisa_kev(session: requests.Session, seen: set[str]):
@@ -2490,6 +2580,11 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             log.exception("GitHub Advisory: unexpected failure")
             results.append(([], f"GitHub Advisory: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_ransomware_victims(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_RANSOMWARE_API)
+            results.append(([], f"{SOURCE_RANSOMWARE_API}: unexpected error ({type(exc).__name__})"))
         with ThreadPoolExecutor(max_workers=8) as pool:
             results += list(pool.map(
                 lambda s: collect_source(s, since, seen), RSS_SOURCES))
@@ -2743,6 +2838,11 @@ def main_alert() -> int:
     except Exception as exc:  # noqa: BLE001
         log.exception("GitHub Advisory: unexpected failure")
         results.append(([], f"GitHub Advisory: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_ransomware_victims(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_RANSOMWARE_API)
+        results.append(([], f"{SOURCE_RANSOMWARE_API}: unexpected error ({type(exc).__name__})"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         results += list(pool.map(lambda s: collect_source(s, since, set()), RSS_SOURCES))
 

@@ -615,6 +615,10 @@ def detect_stack(text: str) -> tuple[str, ...]:
 # --- Score de criticité --------------------------------------------------------
 CRITICAL_THRESHOLD = 10    # 🔴
 IMPORTANT_THRESHOLD = 5    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
+
+# Pays de proximite immediate : Benelux et France, la ou se trouve le siege. Une mention de ces
+# pays pese plus lourd que le reste de l'empreinte IBM, victimes ransomware comprises.
+HOME_COUNTRIES = ("BE", "LU", "NL", "FR")
 # Abaisse de 6 a 5 apres mesure sur 1346 articles reels : une CVE sur un produit suivi vaut deja
 # 5 (3 + 2), et ces articles ressortaient sans marque. Effet : 143 -> 176 pastilles (11 % -> 13 %).
 
@@ -749,8 +753,12 @@ def compute_criticality(text: str) -> tuple[int, str]:
         score += 2
     countries = detect_countries(text)
     if countries:
-        # Le siège (Belgique / UE) pèse plus qu'une simple mention d'un autre pays de l'empreinte.
-        score += 2 if ("BE" in countries or "EU" in countries) else 1
+        # Benelux et France pesent plus lourd qu'une simple mention d'un autre pays de l'empreinte,
+        # et l'UE est traitee comme le siege : elle reste au niveau haut.
+        if any(c in HOME_COUNTRIES for c in countries) or "EU" in countries:
+            score += 3
+        else:
+            score += 1
     if detect_stack(text):
         score += 2   # un article qui concerne directement ta stack pèse plus lourd
     if RE_TARGETS.search(text):
@@ -882,10 +890,6 @@ SOURCE_RANSOMWARE_LIVE = "Ransomware.live"
 SOURCE_KEV = "CISA KEV"
 SOURCE_GITHUB = "GitHub Advisory"
 SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
-
-# Pays de proximite immediate : une victime y touche de plus pres ton perimetre que dans le reste
-# de l'empreinte IBM. Utilise par le collecteur de victimes ransomware.
-HOME_COUNTRIES = ("BE", "LU", "NL", "FR")
 
 # Sources hors flux RSS, collectées par du code dédié : CISA KEV et GitHub Advisory.
 EXTRA_SOURCES = 2

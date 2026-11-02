@@ -918,6 +918,8 @@ RSS_SOURCES = [
     {"name": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "category": ALERTS},
     # Dark web / ransomware
     {"name": SOURCE_RANSOMWARE_LIVE, "url": "https://ransomware.live/cyberattacks.xml", "category": DARKWEB},
+    # RansomLook (CC BY 4.0) : agrege les blogs de groupes, forums et canaux Telegram publics.
+    {"name": "RansomLook", "url": "https://www.ransomlook.io/rss.xml", "category": DARKWEB},
     # Flux thématisés : ils sont collectés avant les flux généralistes des mêmes sites, donc
     # l'article ransomware est rattaché à cette rubrique et le doublon est écarté plus loin.
     {"name": "Help Net Security (Ransomware)", "url": "https://www.helpnetsecurity.com/tag/ransomware/feed/", "category": DARKWEB},
@@ -1023,6 +1025,7 @@ SOURCE_WEIGHTS = {
     "Cisco PSIRT": 3, "oss-security": 2, "Chrome Releases": 2,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
+    "RansomLook": 2,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
     "Databreaches.net": 2,
     "GitHub Advisory": 3,

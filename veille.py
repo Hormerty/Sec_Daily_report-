@@ -883,6 +883,10 @@ SOURCE_KEV = "CISA KEV"
 SOURCE_GITHUB = "GitHub Advisory"
 SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
 
+# Pays de proximite immediate : une victime y touche de plus pres ton perimetre que dans le reste
+# de l'empreinte IBM. Utilise par le collecteur de victimes ransomware.
+HOME_COUNTRIES = ("BE", "LU", "NL", "FR")
+
 # Sources hors flux RSS, collectées par du code dédié : CISA KEV et GitHub Advisory.
 EXTRA_SOURCES = 2
 # Pistes API non câblées ici car elles ne produisent pas des articles RSS :
@@ -1598,8 +1602,8 @@ def collect_ransomware_victims(session: requests.Session, since: datetime):
         score, _ = compute_criticality(texte)
         score += 3
         if pays:
-            # Meme regle que la detection textuelle : siege (BE/UE) plus lourd qu'un autre pays.
-            score += 2 if code in ("BE", "EU") else 1
+            # Benelux et France pesent plus lourd que le reste de l'empreinte.
+            score += 3 if code in HOME_COUNTRIES else 1
         detail = " · ".join(x for x in (
             f"Groupe : {group}" if group else "",
             f"Secteur : {v.get('activity')}" if v.get("activity") else "",

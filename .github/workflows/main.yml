@@ -72,6 +72,7 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          RANSOMWARE_API_KEY: ${{ secrets.RANSOMWARE_API_KEY }}
           TZ: Europe/Brussels
           # Rapport glissant sur 48 h
           FENETRE_HEURES: ${{ inputs.fenetre_heures || '48' }}

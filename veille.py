@@ -890,6 +890,8 @@ SOURCE_RANSOMWARE_LIVE = "Ransomware.live"
 SOURCE_KEV = "CISA KEV"
 SOURCE_GITHUB = "GitHub Advisory"
 SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
+# Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
+RANSOMWARE_API_KEY = _env_str("RANSOMWARE_API_KEY", "")
 
 # Sources hors flux RSS, collectées par du code dédié : CISA KEV et GitHub Advisory.
 EXTRA_SOURCES = 2
@@ -1570,9 +1572,20 @@ def collect_ransomware_victims(session: requests.Session, since: datetime):
     publications des groupes. Aucun recouvrement constate entre les deux jeux de liens.
     """
     url = "https://api.ransomware.live/v2/recentvictims"
+    entetes: dict[str, str] = {}
+    # API PRO : cle gratuite, en-tete X-Api-Key, mais hote distinct. Non deployee a ce jour
+    # (api-pro renvoie 404 sur /v2/*) : on tente puis on retombe sur l'acces anonyme.
+    if RANSOMWARE_API_KEY:
+        url = "https://api-pro.ransomware.live/v2/recentvictims"
+        entetes = {"X-Api-Key": RANSOMWARE_API_KEY}
     try:
         with ipv4_only():
-            response = session.get(url, timeout=TIMEOUT)
+            response = session.get(url, timeout=TIMEOUT, headers=entetes)
+            if response.status_code == 404 and entetes:
+                log.warning("%s: PRO endpoint unavailable, falling back to the free API",
+                            SOURCE_RANSOMWARE_API)
+                url = "https://api.ransomware.live/v2/recentvictims"
+                response = session.get(url, timeout=TIMEOUT, headers={})
             response.raise_for_status()
             victimes = response.json()
         if not isinstance(victimes, list):

@@ -942,6 +942,8 @@ RSS_SOURCES = [
     {"name": "The Record (Ransomware)", "url": "https://therecord.media/feed?tag=ransomware", "category": DARKWEB},
     {"name": "FrenchBreaches", "url": "https://frenchbreaches.com/feed.xml", "category": DARKWEB, "country": "FR"},
     {"name": "Databreaches.net", "url": "https://databreaches.net/feed/", "category": DARKWEB},
+    # Autorite francaise : sanctions RGPD et suites des fuites de donnees.
+    {"name": "CNIL", "url": "https://www.cnil.fr/fr/rss.xml", "category": DARKWEB, "country": "FR"},
     # Actualités & médias
     {"name": "BleepingComputer", "url": "https://www.bleepingcomputer.com/feed/", "category": NEWS},
     {"name": "The Hacker News", "url": "https://feeds.feedburner.com/TheHackersNews", "category": NEWS},
@@ -1008,6 +1010,8 @@ RSS_SOURCES = [
     {"name": "Schneier on Security", "url": "https://www.schneier.com/feed/atom/", "category": BLOGS},
     {"name": "DoublePulsar", "url": "https://doublepulsar.com/feed", "category": BLOGS},
     {"name": "Pen Test Partners", "url": "https://www.pentestpartners.com/feed/", "category": BLOGS},
+    # infosec.exchange ne publie plus de flux par hashtag ; mastodon.social, si.
+    {"name": "Mastodon (infosec)", "url": "https://mastodon.social/tags/infosec.rss", "category": BLOGS, "filter": True},
 ]
 
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
@@ -1044,7 +1048,7 @@ SOURCE_WEIGHTS = {
     "Have I Been Pwned": 2, "EUVD (ENISA)": 3,
     "RansomLook": 2,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
-    "Databreaches.net": 2,
+    "Databreaches.net": 2, "CNIL": 1,
     "GitHub Advisory": 3,
     "BleepingComputer": 1, "The Hacker News": 1, "Krebs on Security": 2,
     "The Record": 2, "SecurityWeek": 1, "Dark Reading": 2, "Help Net Security": 1,
@@ -1066,6 +1070,7 @@ SOURCE_WEIGHTS = {
     "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
     "Bellingcat": 1, "Risky Business": 2, "Troy Hunt": 2,
     "Schneier on Security": 1, "DoublePulsar": 2, "Pen Test Partners": 1,
+    "Mastodon (infosec)": 1,
 }
 
 

@@ -596,6 +596,32 @@ for titre in ("CISA confirms PHP2Shell vulnerabilities now exploited in attacks"
 print("Exploitation badge: OK")
 
 
+# --- Déduplication dark web ---------------------------------------------------
+# L'API et RansomLook publient la même victime sous deux libellés et deux liens : le doublon
+# doit disparaître, mais les victimes propres à RansomLook doivent survivre.
+_maintenant = datetime.now(timezone.utc)
+
+
+def _art(source, titre):
+    return v.Article(source=source, title=titre, link="https://x/" + str(abs(hash(titre))),
+                     date=_maintenant, category=v.DARKWEB)
+
+
+_resultats = [
+    ([_art(v.SOURCE_RANSOMWARE_API, "Astino Berhad — revendiqué par qilin")], None),
+    ([_art("RansomLook", "Astino Berhad By qilin"),
+      _art("RansomLook", "[disclosed]Namibian Force By leakeddata"),
+      _art("RansomLook", "Translogwest By akira")], None),
+]
+_titres = [a.title for arts, _ in v.dedupe_ransomware(_resultats) for a in arts]
+assert any("revendiqué" in t for t in _titres), _titres          # la version API est gardée
+assert "Astino Berhad By qilin" not in _titres, _titres          # le doublon RansomLook disparaît
+assert any("Namibian" in t for t in _titres), _titres            # les uniques survivent
+assert any("Translogwest" in t for t in _titres), _titres
+assert v.victim_key("X Y By z") == v.victim_key("X Y — revendiqué par z")
+print("Ransomware dedup: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

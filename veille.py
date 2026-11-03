@@ -1642,6 +1642,40 @@ def collect_ransomware_victims(session: requests.Session, since: datetime):
     return articles, None
 
 
+def victim_key(title: str) -> str:
+    """Cle de rapprochement entre les deux sources dark web.
+
+    L'API ecrit « Astino Berhad — revendique par qilin », RansomLook « Astino Berhad By qilin » :
+    deux libelles, un seul evenement, et surtout deux liens differents que le dedoublonnage par
+    URL ne peut pas rapprocher.
+    """
+    t = title.lower()
+    for sep in (" — revendiqué par ", " by "):
+        if sep in t:
+            t = t.split(sep)[0]
+            break
+    t = re.sub(r"^\[disclosed\]\s*", "", t)
+    t = re.sub(r"[^a-z0-9@. ]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def dedupe_ransomware(results: list) -> list:
+    """Ecarte les victimes RansomLook deja publiees par l'API Ransomware.live.
+
+    La version de l'API est conservee : elle porte le pays, le secteur et un score plus eleve.
+    Les victimes propres a RansomLook sont evidemment gardees.
+    """
+    connues = {victim_key(a.title) for articles, _ in results for a in articles
+               if a.source == SOURCE_RANSOMWARE_API}
+    if not connues:
+        return results
+    sortie = []
+    for articles, err in results:
+        sortie.append(([a for a in articles
+                        if not (a.source == "RansomLook" and victim_key(a.title) in connues)], err))
+    return sortie
+
+
 def collect_cisa_kev(session: requests.Session, seen: set[str]):
     url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
     try:
@@ -2610,6 +2644,7 @@ def main() -> int:
             results += list(pool.map(
                 lambda s: collect_source(s, since, seen), RSS_SOURCES))
 
+        results = dedupe_ransomware(results)
         errors = [err for _, err in results if err]
         groups, new_links = group_articles(results)
         sync_kev(conn, KEV_VULNS)
@@ -2867,6 +2902,7 @@ def main_alert() -> int:
     with ThreadPoolExecutor(max_workers=8) as pool:
         results += list(pool.map(lambda s: collect_source(s, since, set()), RSS_SOURCES))
 
+    results = dedupe_ransomware(results)
     errors = [err for _, err in results if err]
     groups, _ = group_articles(results)
     # Le rapport quotidien enregistre ; ici on ne fait que lire le cache CVSS.

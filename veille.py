@@ -1727,17 +1727,19 @@ def collect_hibp(session: requests.Session, since: datetime):
 
 
 def collect_euvd(session: requests.Session, since: datetime):
-    """Dernieres vulnerabilites du referentiel europeen EUVD (ENISA).
+    """Vulnerabilites europeennes exploitees (EUVD KEV, ENISA).
 
-    Chaque fiche porte son alias CVE, un score CVSS, un EPSS et le CERT emetteur : utile pour les
-    avis europeens qui ne remontent pas encore par les flux americains.
+    /api/kev/dump rend le catalogue complet (1 783 entrees) avec cveId, euvdId, dateAdded et les
+    sources : c'est l'equivalent europeen du KEV americain. On ne garde que les ajouts recents,
+    comme pour CISA KEV. L'endpoint /api/lastvulnerabilities, lui, ne rend que quatre avis et
+    beaucoup de severite moyenne : il n'apportait presque rien.
     """
-    url = "https://euvdservices.enisa.europa.eu/api/lastvulnerabilities"
+    url = "https://euvdservices.enisa.europa.eu/api/kev/dump"
     try:
         response = session.get(url, timeout=TIMEOUT, headers={"Accept": "application/json"})
         response.raise_for_status()
         entrees = response.json()
-        if not isinstance(entrees, list):
+        if isinstance(entrees, dict):
             entrees = entrees.get("items") or entrees.get("data") or []
         if not isinstance(entrees, list):
             raise ValueError("invalid payload")
@@ -1746,46 +1748,45 @@ def collect_euvd(session: requests.Session, since: datetime):
         return [], f"{SOURCE_EUVD}: {exc}"
 
     articles = []
+    # Le catalogue europeen reprend en grande partie celui de la CISA : ne garder que les CVE que
+    # le KEV americain ne liste pas, sinon le mail affiche deux fois la meme faille.
+    deja_connues = {str(v.get("cveID") or "").upper() for v in KEV_VULNS if isinstance(v, dict)}
     for v in entrees:
         if not isinstance(v, dict):
             continue
-        publie = str(v.get("datePublished") or "")
-        date = None
-        for modele in ("%b %d, %Y, %I:%M:%S %p", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-            try:
-                date = datetime.strptime(publie, modele).replace(tzinfo=timezone.utc)
-                break
-            except ValueError:
-                continue
-        if date is None or date < since:
-            continue
-        ident = str(v.get("id") or "").strip()
-        description = str(v.get("description") or "").strip()
-        if not ident or not description:
-            continue
-        cve = RE_CVE.search(str(v.get("aliases") or ""))
-        etiquette = cve.group(0) if cve else ident
-        texte = f"{etiquette} {description}"
-        score, _ = compute_criticality(texte)
-        cvss = v.get("baseScore")
-        epss = v.get("epss")
         try:
-            if cvss is not None:
-                score += enrichment_bonus(None, float(cvss))
-            if epss is not None:
-                score += enrichment_bonus(float(epss), None)
+            date = datetime.strptime(str(v.get("dateAdded") or "")[:10], "%Y-%m-%d")
+            date = date.replace(tzinfo=timezone.utc)
         except (TypeError, ValueError):
-            pass
+            continue
+        if date < since:
+            continue
+        cve = str(v.get("cveId") or "").strip()
+        euvd = str(v.get("euvdId") or "").strip()
+        if not cve and not euvd:
+            continue
+        if cve and cve.upper() in deja_connues:
+            continue
+        etiquette = cve or euvd
+        # Titre neutre volontairement : le bonus fixe ci-dessous remplace la detection textuelle,
+        # exactement comme pour CISA KEV, pour ne pas declencher l'alerte immediate a chaque ajout.
+        titre = f"{etiquette} — EUVD KEV (exploitation confirmée)"
+        score, _ = compute_criticality(titre)
+        score += 5
+        sources = v.get("sources")
         articles.append(Article(
             source=SOURCE_EUVD,
-            title=f"{etiquette}: {description[:180]}"[:300],
-            link=f"https://euvd.enisa.europa.eu/vulnerability/{ident}",
+            title=titre[:300],
+            link=f"https://euvd.enisa.europa.eu/vulnerability/{euvd or cve}",
             date=date,
             category=ALERTS,
-            detail=f"EUVD {ident} · émetteur {v.get('assigner') or '?'} · CVSS {cvss}",
+            detail=" · ".join(x for x in (
+                f"EUVD {euvd}" if euvd else "",
+                f"Sources : {', '.join(map(str, sources))[:120]}" if isinstance(sources, list) and sources else "",
+            ) if x),
             score=score,
             severity=severity_badge(score),
-            cves=(etiquette,) if cve else (),
+            cves=(cve,) if cve else (),
         ))
     log.info("%s: %d new", SOURCE_EUVD, len(articles))
     return articles, None

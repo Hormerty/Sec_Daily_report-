@@ -890,6 +890,8 @@ SOURCE_RANSOMWARE_LIVE = "Ransomware.live"
 SOURCE_KEV = "CISA KEV"
 SOURCE_GITHUB = "GitHub Advisory"
 SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
+SOURCE_HIBP = "Have I Been Pwned"
+SOURCE_EUVD = "EUVD (ENISA)"
 # Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
 RANSOMWARE_API_KEY = _env_str("RANSOMWARE_API_KEY", "")
 
@@ -1039,6 +1041,7 @@ SOURCE_WEIGHTS = {
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
     "Ransomware.live (victims)": 2,
+    "Have I Been Pwned": 2, "EUVD (ENISA)": 3,
     "RansomLook": 2,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
     "Databreaches.net": 2,
@@ -1639,6 +1642,147 @@ def collect_ransomware_victims(session: requests.Session, since: datetime):
             countries=pays,
         ))
     log.info("%s: %d new", SOURCE_RANSOMWARE_API, len(articles))
+    return articles, None
+
+
+# Suffixes de domaine utilises pour rattacher une fuite a un pays de l'empreinte.
+_TLD_COUNTRY = {
+    "fr": "FR", "be": "BE", "nl": "NL", "lu": "LU", "de": "DE", "uk": "GB",
+    "it": "IT", "es": "ES", "pl": "PL", "se": "SE", "dk": "DK", "fi": "FI",
+    "at": "AT", "ch": "CH", "cz": "CZ", "pt": "PT", "gr": "GR", "ie": "IE",
+    "lt": "LT", "lv": "LV", "ee": "EE", "hu": "HU", "ro": "RO", "sk": "SK",
+    "si": "SI", "hr": "HR", "bg": "BG", "no": "NO",
+}
+
+
+def tld_country(domain: str) -> str:
+    """Pays deduit du suffixe de domaine, uniquement s'il appartient a l'empreinte IBM."""
+    domaine = (domain or "").strip().lower().rstrip(".")
+    if "." not in domaine:
+        return ""
+    code = _TLD_COUNTRY.get(domaine.rsplit(".", 1)[-1], "")
+    return code if code in COUNTRIES else ""
+
+
+def collect_hibp(session: requests.Session, since: datetime):
+    """Fuites publiees par Have I Been Pwned : nom, volume et date d'ajout.
+
+    L'endpoint /breaches est public (pas de cle) ; il est filtre sur AddedDate pour ne garder
+    que les fuites nouvelles depuis la derniere collecte.
+    """
+    url = "https://haveibeenpwned.com/api/v3/breaches"
+    try:
+        response = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
+        response.raise_for_status()
+        fuites = response.json()
+        if not isinstance(fuites, list):
+            raise ValueError("invalid payload")
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        log.warning("%s: %s", SOURCE_HIBP, exc)
+        return [], f"{SOURCE_HIBP}: {exc}"
+
+    articles = []
+    for f in fuites:
+        if not isinstance(f, dict):
+            continue
+        # Les listes de spam et les fuites fabriquees ne sont pas des incidents.
+        if f.get("IsFabricated") or f.get("IsRetired") or f.get("IsSpamList"):
+            continue
+        try:
+            ajout = datetime.strptime(str(f.get("AddedDate") or "")[:10], "%Y-%m-%d")
+            ajout = ajout.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if ajout < since:
+            continue
+        nom = str(f.get("Name") or f.get("Title") or "").strip()
+        if not nom:
+            continue
+        comptes = int(f.get("PwnCount") or 0)
+        code = tld_country(f.get("Domain") or "")
+        score = 6 + (1 if comptes >= 100_000 else 0) + (1 if comptes >= 1_000_000 else 0)
+        if code:
+            score += 3 if code in HOME_COUNTRIES else 1
+        donnees = ", ".join(f.get("DataClasses") or [])[:120]
+        articles.append(Article(
+            source=SOURCE_HIBP,
+            title=f"{nom} — {comptes:,} accounts exposed".replace(",", " ")[:300],
+            link=f"https://haveibeenpwned.com/PwnedWebsites#{nom}",
+            date=ajout,
+            category=DARKWEB,
+            detail=" · ".join(x for x in (f"Domain: {f.get('Domain')}" if f.get("Domain") else "",
+                                          f"Data: {donnees}" if donnees else "") if x),
+            tags="🔥" if f.get("IsSensitive") else "",
+            score=score,
+            severity=severity_badge(score),
+            countries=(code,) if code else (),
+        ))
+    log.info("%s: %d new", SOURCE_HIBP, len(articles))
+    return articles, None
+
+
+def collect_euvd(session: requests.Session, since: datetime):
+    """Dernieres vulnerabilites du referentiel europeen EUVD (ENISA).
+
+    Chaque fiche porte son alias CVE, un score CVSS, un EPSS et le CERT emetteur : utile pour les
+    avis europeens qui ne remontent pas encore par les flux americains.
+    """
+    url = "https://euvdservices.enisa.europa.eu/api/lastvulnerabilities"
+    try:
+        response = session.get(url, timeout=TIMEOUT, headers={"Accept": "application/json"})
+        response.raise_for_status()
+        entrees = response.json()
+        if not isinstance(entrees, list):
+            entrees = entrees.get("items") or entrees.get("data") or []
+        if not isinstance(entrees, list):
+            raise ValueError("invalid payload")
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        log.warning("%s: %s", SOURCE_EUVD, exc)
+        return [], f"{SOURCE_EUVD}: {exc}"
+
+    articles = []
+    for v in entrees:
+        if not isinstance(v, dict):
+            continue
+        publie = str(v.get("datePublished") or "")
+        date = None
+        for modele in ("%b %d, %Y, %I:%M:%S %p", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                date = datetime.strptime(publie, modele).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+        if date is None or date < since:
+            continue
+        ident = str(v.get("id") or "").strip()
+        description = str(v.get("description") or "").strip()
+        if not ident or not description:
+            continue
+        cve = RE_CVE.search(str(v.get("aliases") or ""))
+        etiquette = cve.group(0) if cve else ident
+        texte = f"{etiquette} {description}"
+        score, _ = compute_criticality(texte)
+        cvss = v.get("baseScore")
+        epss = v.get("epss")
+        try:
+            if cvss is not None:
+                score += enrichment_bonus(None, float(cvss))
+            if epss is not None:
+                score += enrichment_bonus(float(epss), None)
+        except (TypeError, ValueError):
+            pass
+        articles.append(Article(
+            source=SOURCE_EUVD,
+            title=f"{etiquette}: {description[:180]}"[:300],
+            link=f"https://euvd.enisa.europa.eu/vulnerability/{ident}",
+            date=date,
+            category=ALERTS,
+            detail=f"EUVD {ident} · émetteur {v.get('assigner') or '?'} · CVSS {cvss}",
+            score=score,
+            severity=severity_badge(score),
+            cves=(etiquette,) if cve else (),
+        ))
+    log.info("%s: %d new", SOURCE_EUVD, len(articles))
     return articles, None
 
 
@@ -2640,6 +2784,16 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             log.exception("%s: unexpected failure", SOURCE_RANSOMWARE_API)
             results.append(([], f"{SOURCE_RANSOMWARE_API}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_hibp(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_HIBP)
+            results.append(([], f"{SOURCE_HIBP}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_euvd(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_EUVD)
+            results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
         with ThreadPoolExecutor(max_workers=8) as pool:
             results += list(pool.map(
                 lambda s: collect_source(s, since, seen), RSS_SOURCES))
@@ -2899,6 +3053,16 @@ def main_alert() -> int:
     except Exception as exc:  # noqa: BLE001
         log.exception("%s: unexpected failure", SOURCE_RANSOMWARE_API)
         results.append(([], f"{SOURCE_RANSOMWARE_API}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_hibp(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_HIBP)
+        results.append(([], f"{SOURCE_HIBP}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_euvd(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_EUVD)
+        results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         results += list(pool.map(lambda s: collect_source(s, since, set()), RSS_SOURCES))
 

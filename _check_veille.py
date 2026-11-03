@@ -362,6 +362,7 @@ with mock.patch.multiple(
     collect_ransomware_victims=lambda *a, **k: ([], None),
     collect_hibp=lambda *a, **k: ([], None),
     collect_euvd=lambda *a, **k: ([], None),
+    collect_nvd_vendors=lambda *a, **k: ([], None),
     collect_source=lambda source, since, seen: ([], None),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -391,6 +392,7 @@ with mock.patch.multiple(
     collect_ransomware_victims=lambda *a, **k: ([], "Ransomware.live (victims) : boom"),
     collect_hibp=lambda *a, **k: ([], "Have I Been Pwned : boom"),
     collect_euvd=lambda *a, **k: ([], "EUVD (ENISA) : boom"),
+    collect_nvd_vendors=lambda *a, **k: ([], "NVD (éditeurs) : boom"),
     collect_source=lambda source, since, seen: ([], f"{source['name']} : boom"),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -558,6 +560,7 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_ransomware_victims=lambda *a, **k: ([], None),
             collect_hibp=lambda *a, **k: ([], None),
             collect_euvd=lambda *a, **k: ([], None),
+            collect_nvd_vendors=lambda *a, **k: ([], None),
             collect_source=lambda *a, **k: ([], None),
         ):
             code = v.main()
@@ -680,6 +683,7 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_ransomware_victims=lambda *a, **k: ([], None),
             collect_hibp=lambda *a, **k: ([], None),
             collect_euvd=lambda *a, **k: ([], None),
+            collect_nvd_vendors=lambda *a, **k: ([], None),
             collect_source=lambda source, since, seen: ([], None),
             enrich=lambda session, groups, cache: {},
             open_db=lambda: None,

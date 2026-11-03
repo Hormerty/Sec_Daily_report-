@@ -31,7 +31,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -892,6 +892,7 @@ SOURCE_GITHUB = "GitHub Advisory"
 SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
 SOURCE_HIBP = "Have I Been Pwned"
 SOURCE_EUVD = "EUVD (ENISA)"
+SOURCE_NVD = "NVD (éditeurs)"
 # Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
 RANSOMWARE_API_KEY = _env_str("RANSOMWARE_API_KEY", "")
 
@@ -1046,6 +1047,7 @@ SOURCE_WEIGHTS = {
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
     "Ransomware.live (victims)": 2,
     "Have I Been Pwned": 2, "EUVD (ENISA)": 3,
+    "NVD (éditeurs)": 2,
     "RansomLook": 2,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
     "Databreaches.net": 2, "CNIL": 1,
@@ -1789,6 +1791,91 @@ def collect_euvd(session: requests.Session, since: datetime):
             cves=(cve,) if cve else (),
         ))
     log.info("%s: %d new", SOURCE_EUVD, len(articles))
+    return articles, None
+
+
+# Editeurs interroges directement chez le NVD : equipements de bordure, logiciels d'entreprise et
+# la gamme Proton, que l'employeur soit concerne ou non.
+NVD_VENDORS = (
+    "ivanti", "citrix", "netscaler", "sonicwall", "fortinet", "palo alto", "big-ip",
+    "veeam", "juniper", "vmware", "moveit",
+    "proton", "yahoo", "ibm",
+)
+NVD_VENDOR_MAX = 3    # par editeur, pour qu'un seul produit ne mange pas la rubrique
+NVD_MAX = 30          # total par collecte
+
+
+def collect_nvd_vendors(session: requests.Session, since: datetime):
+    """CVE recentes des editeurs cibles, interrogees une par une chez le NVD.
+
+    Le KEV ne liste qu'apres coup une exploitation confirmee, et les flux PSIRT ne couvrent que
+    les editeurs qui publient un RSS : une requete par mot-cle editeur capte les nouveautes avant.
+    """
+    fin = datetime.now(timezone.utc)
+    debut = since
+    fmt = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S.000")
+    entetes = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
+    pause = 0.7 if NVD_API_KEY else 6.5
+    articles: list[Article] = []
+    erreurs: list[str] = []
+
+    for editeur in NVD_VENDORS:
+        if len(articles) >= NVD_MAX:
+            break
+        # Sans keywordExactMatch, le NVD cherche les mots separement : « exchange server »
+        # ramenait tout CVE contenant a la fois « exchange » et « server ».
+        exact = "&keywordExactMatch" if " " in editeur else ""
+        url = (f"{NVD_URL}?keywordSearch={quote(editeur)}{exact}"
+               f"&pubStartDate={fmt(debut)}&pubEndDate={fmt(fin)}&resultsPerPage=50")
+        try:
+            response = session.get(url, timeout=30, headers=entetes)
+            response.raise_for_status()
+            data = response.json()
+        except (requests.RequestException, ValueError, AttributeError) as exc:
+            erreurs.append(f"{editeur}: {exc}")
+            continue
+        gardes = 0
+        for item in data.get("vulnerabilities", []):
+            if gardes >= NVD_VENDOR_MAX or len(articles) >= NVD_MAX:
+                break
+            cve = item.get("cve") if isinstance(item, dict) else None
+            if not isinstance(cve, dict):
+                continue
+            ident = str(cve.get("id") or "")
+            if not ident:
+                continue
+            description = ""
+            for d in cve.get("descriptions") or []:
+                if isinstance(d, dict) and d.get("lang") == "en":
+                    description = str(d.get("value") or "")
+                    break
+            try:
+                date = datetime.strptime(str(cve.get("published") or "")[:19], "%Y-%m-%dT%H:%M:%S")
+                date = date.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
+            if date < since:
+                continue
+            texte = f"{ident} {description}"
+            score, _ = compute_criticality(texte)
+            articles.append(Article(
+                source=SOURCE_NVD,
+                title=f"{ident}: {description[:170]}"[:300],
+                link=f"https://nvd.nist.gov/vuln/detail/{ident}",
+                date=date,
+                category=ALERTS,
+                detail=f"Éditeur interrogé : {editeur}",
+                score=score,
+                severity=severity_badge(score),
+                cves=(ident,),
+            ))
+            gardes += 1
+        # 50 requetes par 30 s avec cle, 5 sans : cette pause couvre les deux cas.
+        time.sleep(pause)
+
+    if erreurs and not articles:
+        return [], f"{SOURCE_NVD}: {'; '.join(erreurs[:2])}"
+    log.info("%s: %d new", SOURCE_NVD, len(articles))
     return articles, None
 
 
@@ -2800,6 +2887,11 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             log.exception("%s: unexpected failure", SOURCE_EUVD)
             results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_nvd_vendors(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_NVD)
+            results.append(([], f"{SOURCE_NVD}: unexpected error ({type(exc).__name__})"))
         with ThreadPoolExecutor(max_workers=8) as pool:
             results += list(pool.map(
                 lambda s: collect_source(s, since, seen), RSS_SOURCES))
@@ -3069,6 +3161,11 @@ def main_alert() -> int:
     except Exception as exc:  # noqa: BLE001
         log.exception("%s: unexpected failure", SOURCE_EUVD)
         results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_nvd_vendors(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_NVD)
+        results.append(([], f"{SOURCE_NVD}: unexpected error ({type(exc).__name__})"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         results += list(pool.map(lambda s: collect_source(s, since, set()), RSS_SOURCES))
 

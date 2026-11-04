@@ -937,6 +937,10 @@ RSS_SOURCES = [
     {"name": "Cisco PSIRT", "url": "https://sec.cloudapps.cisco.com/security/center/psirtrss20/CiscoSecurityAdvisory.xml", "category": ALERTS},
     {"name": "oss-security", "url": "https://seclists.org/rss/oss-sec.rss", "category": ALERTS, "filter": True},
     {"name": "Chrome Releases", "url": "https://chromereleases.googleblog.com/feeds/posts/default", "category": ALERTS, "filter": True, "max": 5},
+    {"name": "GitLab", "url": "https://about.gitlab.com/security-releases.xml", "category": ALERTS},
+    {"name": "Jenkins", "url": "https://www.jenkins.io/security/advisories/rss.xml", "category": ALERTS},
+    # Agregateur d'exploits : prend le relais d'Exploit-DB, dont le flux ne bouge plus qu'une fois par quinzaine.
+    {"name": "Sploitus", "url": "https://sploitus.com/rss", "category": ALERTS},
     {"name": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "category": ALERTS, "max": 5},
     {"name": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "category": ALERTS},
     {"name": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "category": ALERTS},
@@ -981,6 +985,7 @@ RSS_SOURCES = [
     {"name": "Infosecurity Magazine", "url": "https://www.infosecurity-magazine.com/rss/news/", "category": NEWS},
     # Threat intelligence / recherche
     {"name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": INTEL},
+    {"name": "Google Security Blog", "url": "https://security.googleblog.com/feeds/posts/default", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
     {"name": "Sekoia", "url": "https://blog.sekoia.io/feed/", "category": INTEL},
@@ -1051,6 +1056,7 @@ SOURCE_WEIGHTS = {
     "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,
     "FortiGuard PSIRT": 3, "Microsoft MSRC": 3, "Palo Alto Advisories": 3,
     "Cisco PSIRT": 3, "oss-security": 2, "Chrome Releases": 2,
+    "GitLab": 3, "Jenkins": 3, "Sploitus": 2,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
     "Ransomware.live (victims)": 2,
@@ -1069,6 +1075,7 @@ SOURCE_WEIGHTS = {
     "Graham Cluley": 2, "Security.nl": 1, "The Register": 2,
     "Infosecurity Magazine": 1,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
+    "Google Security Blog": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,
@@ -1807,6 +1814,8 @@ def collect_euvd(session: requests.Session, since: datetime):
 NVD_VENDORS = (
     "ivanti", "citrix", "netscaler", "sonicwall", "fortinet", "palo alto", "big-ip",
     "veeam", "juniper", "vmware", "moveit",
+    # Produits suivis comme cibles mais sans flux : NVD est leur seul canal rapide.
+    "confluence", "jira", "okta", "adobe", "oracle", "manageengine",
     "proton", "yahoo", "ibm",
 )
 NVD_VENDOR_MAX = 3    # par editeur, pour qu'un seul produit ne mange pas la rubrique

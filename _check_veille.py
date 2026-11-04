@@ -664,6 +664,35 @@ finally:
 print("Advisory token: OK")
 
 
+# --- Sources muettes ----------------------------------------------------------
+# Un flux peut repondre et ne plus rien publier : le bandeau d'erreurs ne le voit pas.
+assert v.silent_sources(None, datetime.now(timezone.utc)) == []
+
+with tempfile.TemporaryDirectory() as _dossier:
+    _ancienne_db = v.DB_FILE
+    v.DB_FILE = str(Path(_dossier) / "silent.db")
+    _conn = v.open_db()
+    try:
+        _auj = datetime.now(timezone.utc)
+        for lien, jour, source in (
+            ("https://s/1", _auj.date().isoformat(), "Fraiche"),
+            ("https://s/2", (_auj - timedelta(days=20)).date().isoformat(), "Muette"),
+        ):
+            _conn.execute(
+                "INSERT INTO articles (lien, vu_le, source, categorie, titre) VALUES (?,?,?,?,?)",
+                (lien, jour, source, "News", "t"))
+        _conn.commit()
+        _muettes = v.silent_sources(_conn, _auj)
+        assert ("Muette", 20) in _muettes, _muettes
+        assert all(nom != "Fraiche" for nom, _ in _muettes), _muettes
+        _html = v.render_html({}, [], None, [], [], max_articles=10, silent=_muettes)
+        assert "Silent sources" in _html and "Muette" in _html
+    finally:
+        _conn.close()
+        v.DB_FILE = _ancienne_db
+print("Silent sources: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

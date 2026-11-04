@@ -2448,6 +2448,35 @@ def _cve_links_text(cve: str) -> str:
     )
 
 
+def silent_sources(conn: sqlite3.Connection | None, today: datetime,
+                   days: int = 14) -> list[tuple[str, int]]:
+    """Sources qui ont deja publie mais se taisent depuis `days` jours.
+
+    Un flux peut repondre parfaitement et ne plus rien contenir : un PSIRT qui change d'URL, un
+    blog qui s'arrete. Le bandeau d'erreurs ne les voit pas, puisque techniquement tout va bien.
+
+    Seules les sources ayant au moins un article en base sont examinees : une source ajoutee
+    recemment serait signalee a tort.
+    """
+    if conn is None:
+        return []
+    try:
+        rows = list(conn.execute("SELECT source, MAX(vu_le) FROM articles GROUP BY source"))
+    except sqlite3.Error:
+        return []
+    muettes = []
+    for source, dernier in rows:
+        if not source or not dernier:
+            continue
+        try:
+            age = (today.date() - datetime.fromisoformat(str(dernier)[:10]).date()).days
+        except (TypeError, ValueError):
+            continue
+        if age >= days:
+            muettes.append((str(source), age))
+    return sorted(muettes, key=lambda kv: -kv[1])
+
+
 def inject_section_articles(groups: dict[str, list[Article]],
                             displayed: dict[str, list[Article]],
                             per_country: int = 4, per_product: int = 4,
@@ -2490,7 +2519,8 @@ def inject_section_articles(groups: dict[str, list[Article]],
 def render_html(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
-                *, max_articles: int | None = None) -> str:
+                *, max_articles: int | None = None,
+                silent: list[tuple[str, int]] | None = None) -> str:
     e = html.escape
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
@@ -2537,6 +2567,13 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         parts.append(
             '<p style="background:#fff3cd;padding:8px;border-radius:4px">⚠️ Sources in error: '
             + e(" ; ".join(errors))
+            + "</p>"
+        )
+    if silent:
+        parts.append(
+            '<p style="background:#fff3cd;padding:8px;border-radius:4px">🔇 Silent sources '
+            '(no article for 14+ days, feed still answering): '
+            + e(", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
             + "</p>"
         )
 
@@ -2695,7 +2732,8 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
 def render_text(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
-                *, max_articles: int | None = None) -> str:
+                *, max_articles: int | None = None,
+                silent: list[tuple[str, int]] | None = None) -> str:
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
     # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
@@ -2722,7 +2760,10 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                      "the lowest-priority ones are hidden to avoid truncation.)")
     if errors:
         lines.append("Sources in error: " + " ; ".join(errors))
-    top = top_priorities(groups)
+    if silent:
+        lines.append("Silent sources (no article for 14+ days, feed still answering): "
+                     + ", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
+    top = top_priorities(displayed)
     if top:
         lines.append("\n##### TOP PRIORITIES TODAY #####")
         for a in top:
@@ -3000,10 +3041,14 @@ def main() -> int:
             subject += f" · ⚡ {totals['campaigns']} campaign(s)"
 
         email_limit = MAX_EMAIL_ARTICLES
+        # Un flux peut repondre et ne plus rien publier : invisible dans le bandeau d'erreurs.
+        silent = silent_sources(conn, now)
+        if silent:
+            log.info("Silent sources: %s", ", ".join(f"{n} ({a}d)" for n, a in silent[:6]))
         html_report = render_html(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit)
+                                  max_articles=email_limit, silent=silent)
         text_report = render_text(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit)
+                                  max_articles=email_limit, silent=silent)
         html_size = len(html_report.encode("utf-8"))
         text_size = len(text_report.encode("utf-8"))
         # Si le message reste trop lourd, réduire par petits paliers (-10 %) plutôt que de moitié :
@@ -3014,9 +3059,9 @@ def main() -> int:
             log.warning("Report of %d KB: reducing to %d items",
                         (html_size + text_size) // 1000, email_limit)
             html_report = render_html(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit)
+                                      max_articles=email_limit, silent=silent)
             text_report = render_text(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit)
+                                      max_articles=email_limit, silent=silent)
             html_size = len(html_report.encode("utf-8"))
             text_size = len(text_report.encode("utf-8"))
         log.info("Report size: %.1f KB HTML + %.1f KB text (%d items max)",

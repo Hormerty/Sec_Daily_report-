@@ -2491,7 +2491,9 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         )
 
     parts.append('<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:24px">🚨 Top priorities today</h2>')
-    top = top_priorities(groups)
+    # Les trois sections ci-dessous ne doivent citer que des articles reellement affiches plus bas :
+    # elles renvoient vers leur entree complete, qui n'existerait pas si le plafond l'avait coupee.
+    top = top_priorities(displayed)
     if top:
         parts.append("<ul>")
         for a in top:
@@ -2559,7 +2561,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             )
         parts.append("</ul>")
 
-    stack_blocks = stack_sections(groups)
+    stack_blocks = stack_sections(displayed)
     parts.append(
         '<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:28px">'
         f"🧰 Your stack ({e(' · '.join(STACK_PRODUCTS))})</h2>"
@@ -2580,7 +2582,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             "window.</p>"
         )
 
-    blocks = country_sections(groups)
+    blocks = country_sections(displayed)
     parts.append(
         '<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:28px">'
         "🌍 European focus (IBM footprint)</h2>"
@@ -2701,7 +2703,7 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                    if a.also_covered else "")
             )
 
-    stack_blocks = stack_sections(groups)
+    stack_blocks = stack_sections(displayed)
     lines.append("\n##### YOUR STACK (" + " · ".join(STACK_PRODUCTS).upper() + ") #####")
     if stack_blocks:
         for name, items in stack_blocks:
@@ -2711,7 +2713,7 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
     else:
         lines.append("No security item about your stack in this window.")
 
-    blocks = country_sections(groups)
+    blocks = country_sections(displayed)
     lines.append("\n##### EUROPEAN FOCUS (IBM FOOTPRINT) #####")
     if blocks:
         for code, items in blocks:

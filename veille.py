@@ -2440,6 +2440,45 @@ def _cve_links_text(cve: str) -> str:
     )
 
 
+def inject_section_articles(groups: dict[str, list[Article]],
+                            displayed: dict[str, list[Article]],
+                            per_country: int = 4, per_product: int = 4,
+                            budget: int = 24) -> dict[str, list[Article]]:
+    """Compromis entre rubriques riches et liens valides.
+
+    Les sections pays et stack renvoient vers l'entree complete, situee dans la liste ci-dessous.
+    Pour qu'un article cite ne mene jamais dans le vide, on le fait remonter dans la liste
+    affichee — mais avec un budget borne, sinon on contournerait le plafond general.
+
+    Seules les sources deja presentes dans la liste sont enrichies : ajouter une source inedite
+    casserait l'ordre des rubriques.
+    """
+    affiches = {a.link for items in displayed.values() for a in items}
+    ranked = sorted((a for v in groups.values() for a in v),
+                    key=lambda a: (a.score, a.date), reverse=True)
+
+    candidats: list[Article] = []
+    par_pays: dict[str, int] = {}
+    par_produit: dict[str, int] = {}
+    for a in ranked:
+        utile = False
+        for code in a.countries:
+            if code in COUNTRIES and par_pays.get(code, 0) < per_country:
+                par_pays[code] = par_pays.get(code, 0) + 1
+                utile = True
+        for produit in a.stack:
+            if par_produit.get(produit, 0) < per_product:
+                par_produit[produit] = par_produit.get(produit, 0) + 1
+                utile = True
+        if utile and a.link not in affiches and a.source in displayed:
+            candidats.append(a)
+            affiches.add(a.link)
+
+    for a in candidats[:budget]:
+        displayed[a.source].append(a)
+    return displayed
+
+
 def render_html(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
@@ -2447,6 +2486,9 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
     e = html.escape
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
+    # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
+    # la limite d'un budget de 24, pour ne jamais citer un lien absent de la liste affichee.
+    displayed = inject_section_articles(groups, displayed)
     shown = sum(len(v) for v in displayed.values())
     parts = [
         '<html lang="en"><head><meta charset="utf-8">'
@@ -2648,6 +2690,9 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                 *, max_articles: int | None = None) -> str:
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
+    # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
+    # la limite d'un budget de 24, pour ne jamais citer un lien absent de la liste affichee.
+    displayed = inject_section_articles(groups, displayed)
     shown = sum(len(v) for v in displayed.values())
     lines = [
         f"{c['total']} item(s) over {WINDOW_HOURS} h · "

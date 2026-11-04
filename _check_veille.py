@@ -631,6 +631,39 @@ assert v.victim_key("X Y By z") == v.victim_key("X Y — revendiqué par z")
 print("Ransomware dedup: OK")
 
 
+# --- Jeton GitHub pour l'API Advisory -----------------------------------------
+# Sans jeton, l'API plafonne a 60 requetes/heure et par IP, quota partage par tous les runners :
+# la collecte echouait en silence. Le jeton doit partir en en-tete des qu'il est present.
+_capture = {}
+
+
+class _RepAdvisory:
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return []
+
+
+class _SessAdvisory:
+    def get(self, url, params=None, timeout=None, headers=None):
+        _capture["h"] = headers or {}
+        return _RepAdvisory()
+
+
+_jeton_initial = v.GITHUB_TOKEN
+try:
+    v.GITHUB_TOKEN = "ghs_test"
+    v.collect_github_advisories(_SessAdvisory(), datetime.now(timezone.utc) - timedelta(days=1))
+    assert _capture["h"].get("Authorization") == "Bearer ghs_test", _capture
+    v.GITHUB_TOKEN = ""
+    v.collect_github_advisories(_SessAdvisory(), datetime.now(timezone.utc) - timedelta(days=1))
+    assert "Authorization" not in _capture["h"], _capture
+finally:
+    v.GITHUB_TOKEN = _jeton_initial
+print("Advisory token: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

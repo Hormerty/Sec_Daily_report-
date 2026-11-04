@@ -895,6 +895,9 @@ SOURCE_EUVD = "EUVD (ENISA)"
 SOURCE_NVD = "NVD (éditeurs)"
 # Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
 RANSOMWARE_API_KEY = _env_str("RANSOMWARE_API_KEY", "")
+# Jeton GitHub pour l'API Advisory : 5 000 requetes/heure au lieu de 60, quota partage entre tous
+# les runners. Le workflow le fournit via ${{ github.token }}.
+GITHUB_TOKEN = _env_str("GITHUB_TOKEN", "", "GH_TOKEN")
 
 # Sources hors flux RSS, collectees par du code dedie. Cette liste fait foi : le total affiche
 # s'en deduit, donc ajouter un collecteur sans mettre le compteur a jour devient impossible.
@@ -1992,9 +1995,14 @@ def collect_cisa_kev(session: requests.Session, seen: set[str]):
 def collect_github_advisories(session: requests.Session, since: datetime):
     """GitHub Advisory Database (API) : complète les flux RSS pour l'open source."""
     url = "https://api.github.com/advisories"
+    # Sans jeton, l'API plafonne a 60 requetes par heure et par IP — or les runners GitHub Actions
+    # partagent leurs plages d'adresses : la source disparaissait alors dans le bandeau d'erreurs.
+    entetes = {"Accept": "application/vnd.github+json"}
+    if GITHUB_TOKEN:
+        entetes["Authorization"] = f"Bearer {GITHUB_TOKEN}"
     try:
         r = session.get(url, params={"per_page": 100, "sort": "published",
-                                     "direction": "desc"}, timeout=TIMEOUT)
+                                     "direction": "desc"}, timeout=TIMEOUT, headers=entetes)
         r.raise_for_status()
         data = r.json()
     except (requests.RequestException, ValueError) as exc:

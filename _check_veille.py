@@ -693,6 +693,42 @@ with tempfile.TemporaryDirectory() as _dossier:
 print("Silent sources: OK")
 
 
+# --- Fonctions pures : negation, traduction, regroupement ----------------------
+# _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
+assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True
+assert v._positive(v.RE_EXPLOITED, "not exploited in the wild") is False
+assert v._positive(v.RE_EXPLOITED, "isn't being exploited") is False
+assert v._positive(v.RE_RANSOM, "ransomware attack reported") is True
+assert v._positive(v.RE_RANSOM, "no ransomware involved") is False
+
+# translate_german : les locutions partent, le nom de produit et l'anglais restent.
+assert v.translate_german("[UPDATE] [kritisch] GitLab: Mehrere Schwachstellen") == \
+    "[UPDATED] [critical] GitLab: Multiple vulnerabilities"
+assert "Privilegieneskalation" not in v.translate_german(
+    "[NEU] [hoch] X: Schwachstelle ermöglicht Privilegieneskalation")
+assert v.translate_german("Microsoft Exchange Server: new critical patch") == \
+    "Microsoft Exchange Server: new critical patch"
+
+# group_articles : dedup par lien, repli par CVE, et le lien replie reste memorise.
+_grp_now = datetime.now(timezone.utc)
+
+
+def _mk(source, titre, lien, cves=()):
+    return v.Article(source=source, title=titre, link=lien, date=_grp_now,
+                     category=v.NEWS, cves=cves)
+
+
+_groupes, _liens = v.group_articles([
+    ([_mk("S1", "PHP2Shell exploited", "https://g/1", ("CVE-2026-1",))], None),
+    ([_mk("S2", "PHP2Shell elsewhere", "https://g/2", ("CVE-2026-1",))], None),
+    ([_mk("S3", "Duplicate link", "https://g/1")], None),
+])
+_gardes = [x for xs in _groupes.values() for x in xs]
+assert [x.title for x in _gardes] == ["PHP2Shell exploited"], _gardes
+assert set(_liens) == {"https://g/1", "https://g/2"}, _liens
+print("Pure functions: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

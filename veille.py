@@ -896,8 +896,13 @@ SOURCE_NVD = "NVD (éditeurs)"
 # Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
 RANSOMWARE_API_KEY = _env_str("RANSOMWARE_API_KEY", "")
 
-# Sources hors flux RSS, collectées par du code dédié : CISA KEV et GitHub Advisory.
-EXTRA_SOURCES = 2
+# Sources hors flux RSS, collectees par du code dedie. Cette liste fait foi : le total affiche
+# s'en deduit, donc ajouter un collecteur sans mettre le compteur a jour devient impossible.
+EXTRA_SOURCE_NAMES = (
+    SOURCE_KEV, SOURCE_GITHUB, SOURCE_RANSOMWARE_API,
+    SOURCE_HIBP, SOURCE_EUVD, SOURCE_NVD,
+)
+EXTRA_SOURCES = len(EXTRA_SOURCE_NAMES)
 # Pistes API non câblées ici car elles ne produisent pas des articles RSS :
 # CIRCL CVE Search (JSON CVE), Feodo Tracker (IP de C2), GitHub Search (PoC).
 # GitHub Advisory, lui, est branché dans collect_github_advisories().

@@ -2529,7 +2529,8 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
                 *, max_articles: int | None = None,
-                silent: list[tuple[str, int]] | None = None) -> str:
+                silent: list[tuple[str, int]] | None = None,
+                fresh: set[str] | None = None) -> str:
     e = html.escape
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
@@ -2653,6 +2654,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
                 for src, link in a.also_covered) + "</small>") if a.also_covered else ""
             parts.append(
                 f'<li style="margin-bottom:10px">{tag}'
+                f'{"🆕 " if a.link in (fresh or ()) else ""}'
                 f'<a href="{e(a.link, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.title)}</a>{metr}{detail}{qual_html}{also}</li>'
             )
         parts.append("</ul>")
@@ -2742,7 +2744,8 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
                 *, max_articles: int | None = None,
-                silent: list[tuple[str, int]] | None = None) -> str:
+                silent: list[tuple[str, int]] | None = None,
+                fresh: set[str] | None = None) -> str:
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
     # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
@@ -2800,7 +2803,7 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
             badges, m = _badges(a), _metrics(a)
             qual = _qualifiers(a)
             lines.append(
-                f"- {badges + ' ' if badges else ''}{a.title}{f' [{m}]' if m else ''}"
+                f"- {badges + ' ' if badges else ''}{'🆕 ' if a.link in (fresh or ()) else ''}{a.title}{f' [{m}]' if m else ''}"
                 f"{f' [{qual}]' if qual else ''}\n  {a.link}"
                 + (f"\n  Also covered by: {', '.join(f'{src} ({link})' for src, link in a.also_covered)}"
                    if a.also_covered else "")
@@ -3009,6 +3012,9 @@ def main() -> int:
         results = dedupe_ransomware(results)
         errors = [err for _, err in results if err]
         groups, new_links = group_articles(results)
+        # Le rapport glissant repete un article deux jours : ce marqueur distingue les nouveautes.
+        deja_vus = set(previous)
+        fresh = {lien for lien in new_links if lien not in deja_vus}
         sync_kev(conn, KEV_VULNS)
 
         # Enrichissements optionnels : une panne ne doit jamais empêcher l'envoi du rapport
@@ -3055,9 +3061,9 @@ def main() -> int:
         if silent:
             log.info("Silent sources: %s", ", ".join(f"{n} ({a}d)" for n, a in silent[:6]))
         html_report = render_html(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit, silent=silent)
+                                  max_articles=email_limit, silent=silent, fresh=fresh)
         text_report = render_text(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit, silent=silent)
+                                  max_articles=email_limit, silent=silent, fresh=fresh)
         html_size = len(html_report.encode("utf-8"))
         text_size = len(text_report.encode("utf-8"))
         # Si le message reste trop lourd, réduire par petits paliers (-10 %) plutôt que de moitié :
@@ -3068,9 +3074,9 @@ def main() -> int:
             log.warning("Report of %d KB: reducing to %d items",
                         (html_size + text_size) // 1000, email_limit)
             html_report = render_html(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit, silent=silent)
+                                      max_articles=email_limit, silent=silent, fresh=fresh)
             text_report = render_text(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit, silent=silent)
+                                      max_articles=email_limit, silent=silent, fresh=fresh)
             html_size = len(html_report.encode("utf-8"))
             text_size = len(text_report.encode("utf-8"))
         log.info("Report size: %.1f KB HTML + %.1f KB text (%d items max)",

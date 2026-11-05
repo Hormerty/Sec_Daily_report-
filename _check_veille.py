@@ -729,6 +729,25 @@ assert set(_liens) == {"https://g/1", "https://g/2"}, _liens
 print("Pure functions: OK")
 
 
+# --- Marquage des nouveautes --------------------------------------------------
+# Le rapport glissant repete un article deux jours : seuls les liens jamais vus portent le 🆕.
+_neuf = v.Article(source="S", title="Nouvelle attaque", link="https://n/1",
+                  date=_grp_now, category=v.NEWS)
+_vieux = v.Article(source="S", title="Deja vue", link="https://n/2",
+                   date=_grp_now, category=v.NEWS)
+_html_new = v.render_html({"S": [_neuf, _vieux]}, [], None, [], [],
+                          max_articles=10, fresh={"https://n/1"})
+assert '🆕 <a href="https://n/1"' in _html_new, _html_new[:400]
+assert '🆕 <a href="https://n/2"' not in _html_new
+# Sans le parametre, aucun marqueur : le rendu reste utilisable seul.
+assert "🆕" not in v.render_html({"S": [_neuf]}, [], None, [], [], max_articles=10)
+_txt_new = v.render_text({"S": [_neuf, _vieux]}, [], None, [], [],
+                         max_articles=10, fresh={"https://n/1"})
+assert "🆕 Nouvelle attaque" in _txt_new
+assert "🆕 Deja vue" not in _txt_new
+print("Fresh marker: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

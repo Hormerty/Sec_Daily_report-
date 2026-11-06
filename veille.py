@@ -919,7 +919,9 @@ EXTRA_SOURCES = len(EXTRA_SOURCE_NAMES)
 RSS_SOURCES = [
     # CERT & autorités
     {"name": "CERT-FR avis", "url": "https://www.cert.ssi.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR"},
-    {"name": "CERT-FR alertes", "url": "https://www.cert.ssi.gouv.fr/alerte/feed/", "category": ALERTS, "country": "FR"},
+    # Le flux combine du nouveau domaine rend avis, alertes, actualite et rapports CTI ; celui de
+    # l'ancienne adresse /alerte/feed/ ne produisait plus rien depuis des mois.
+    {"name": "CERT-FR", "url": "https://cert.cyber.gouv.fr/feed/", "category": ALERTS, "country": "FR"},
     {"name": "CERT-EU", "url": "https://cert.europa.eu/publications/security-advisories-rss", "category": ALERTS, "country": "EU"},
     {"name": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "category": ALERTS},
     {"name": "NCSC UK", "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "category": ALERTS, "country": "GB"},
@@ -1054,7 +1056,7 @@ SOURCE_LINKS[SOURCE_GITHUB] = "https://github.com/advisories"
 # Pondération des sources (idée reprise de CyberWatch) : 3 = autorité, 2 = recherche,
 # 1 = actualité, 0 = blog/OSINT. Le score final est ajusté dans collect_rss.
 SOURCE_WEIGHTS = {
-    "CERT-FR avis": 3, "CERT-FR alertes": 3, "CERT-EU": 3, "CISA Advisories": 3,
+    "CERT-FR avis": 3, "CERT-FR": 3, "CERT-EU": 3, "CISA Advisories": 3,
     "NCSC UK": 3, "JPCERT/CC": 3, "CCB Belgique": 3,
     "CERT/CC": 3,
     "NCSC-NL": 3, "CERT Polska": 3,

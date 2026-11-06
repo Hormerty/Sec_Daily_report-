@@ -165,6 +165,11 @@ USER_AGENT = (
 _FEED_ACCEPT = ("application/rss+xml, application/atom+xml, application/xml;q=0.9, "
                 "text/xml;q=0.8, */*;q=0.7")
 
+# Agent de repli, honnête sur l'identité du client. Plusieurs sites refusent un client qui se
+# déclare navigateur sans en être un (Schneier, NVISO, Hackmageddon répondent 403 ou coupent la
+# connexion) alors qu'ils acceptent un agent de lecteur de flux.
+FEED_READER_UA = "Nours_sec_bot/1.0 (+https://github.com/Hormerty/Sec_Daily_report-)"
+
 # Empreinte IBM en Europe : chaque pays où IBM possède une entité ou un bureau.
 # Chaque entrée porte les mots-clés qui marquent un article, les liens de l'autorité
 # nationale (le CCB pour la Belgique) et un site de sécurité local fiable.
@@ -988,7 +993,7 @@ RSS_SOURCES = [
     {"name": "Google Security Blog", "url": "https://security.googleblog.com/feeds/posts/default", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
-    {"name": "Sekoia", "url": "https://blog.sekoia.io/feed/", "category": INTEL},
+    {"name": "Sekoia", "url": "https://www.sekoia.com/blog/rss.xml", "category": INTEL},
     {"name": "Check Point Research", "url": "https://research.checkpoint.com/feed/", "category": INTEL},
     {"name": "Rapid7", "url": "https://www.rapid7.com/blog/rss/", "category": INTEL},
     {"name": "Proofpoint", "url": "https://www.proofpoint.com/us/threat-insight-blog.xml", "category": INTEL},
@@ -1395,14 +1400,33 @@ def analyse_badges(text: str, countries: tuple[str, ...] = ()) -> str:
     return " ".join(badges)
 
 
+def fetch_feed(session: requests.Session, url: str):
+    """Récupère un flux, avec une seconde tentative sous un agent de lecteur.
+
+    L'en-tête Accept reste local à cet appel pour ne pas modifier les réponses JSON (NVD, KEV,
+    GitHub). Certains sites refusent un client qui se déclare navigateur sans en être un : ils
+    répondent 403 ou coupent la connexion, mais acceptent un agent honnête. C'est la seule
+    différence qui débloque Schneier, NVISO et Hackmageddon.
+    """
+    try:
+        response = session.get(url, timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
+        response.raise_for_status()
+        return response
+    except requests.RequestException as exc:
+        try:
+            response = session.get(url, timeout=TIMEOUT,
+                                   headers={"Accept": _FEED_ACCEPT, "User-Agent": FEED_READER_UA})
+            response.raise_for_status()
+            return response
+        except requests.RequestException:
+            raise exc
+
+
 def collect_rss(session: requests.Session, source: dict, since: datetime,
                 seen: set[str]) -> tuple[list[Article], str | None]:
     """Retourne (articles, erreur_ou_None)."""
     try:
-        # Accept propre aux flux : un lecteur RSS annonce les types qu'il sait lire. Cet en-tête
-        # reste local a cet appel pour ne pas modifier les reponses JSON (NVD, KEV, GitHub).
-        response = session.get(source["url"], timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
-        response.raise_for_status()
+        response = fetch_feed(session, source["url"])
     except requests.RequestException as exc:
         log.warning("%s: %s", source["name"], exc)
         return [], f"{source['name']}: {exc}"
@@ -1499,8 +1523,7 @@ def check_feeds(session: requests.Session | None = None) -> int:
     problems: list[str] = []
     for source in RSS_SOURCES:
         try:
-            response = session.get(source["url"], timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
-            response.raise_for_status()
+            response = fetch_feed(session, source["url"])
             feed = feedparser.parse(response.content)
             if not feed.entries:
                 problems.append(source["name"])

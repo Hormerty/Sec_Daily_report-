@@ -748,6 +748,37 @@ assert "🆕 Deja vue" not in _txt_new
 print("Fresh marker: OK")
 
 
+# --- Repli d'agent pour les flux qui refusent un faux navigateur --------------
+# Schneier, NVISO et Hackmageddon repondent 403 ou coupent la connexion quand le client se
+# declare navigateur sans en etre un : la seconde tentative doit porter l'agent honnete.
+class _RepFlux:
+    def __init__(self, ok):
+        self.ok = ok
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise v.requests.RequestException("403")
+
+
+class _SessFlux:
+    def __init__(self):
+        self.appels = []
+
+    def get(self, url, timeout=None, headers=None):
+        heads = headers or {}
+        self.appels.append(heads)
+        # Seule la requete portant un User-Agent explicite reussit.
+        return _RepFlux("User-Agent" in heads)
+
+
+_sess_flux = _SessFlux()
+v.fetch_feed(_sess_flux, "https://exemple.invalid/flux")
+assert len(_sess_flux.appels) == 2, _sess_flux.appels
+assert "User-Agent" not in _sess_flux.appels[0], _sess_flux.appels
+assert _sess_flux.appels[1].get("User-Agent") == v.FEED_READER_UA, _sess_flux.appels
+print("Feed retry: OK")
+
+
 # --- Mode alerte -------------------------------------------------------------
 alerte_subject, alerte_html, alerte_text = v.render_alert([malveillant], 2)
 assert alerte_subject.startswith("🚨 Cyber alert:"), alerte_subject

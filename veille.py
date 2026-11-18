@@ -508,7 +508,10 @@ KEYWORDS_TARGETS = [
     "vllm", "cups",
     # ERP / middleware
     "sap netweaver", "sap commerce", "oracle e-business suite",
-    "ibm websphere", "ibm maximo", "ibm aspera", "qradar", "node.js", "nodejs",
+    # « aspera » seul : les titres écrivent souvent « Aspera Faspex » sans le préfixe IBM.
+    "ibm websphere", "ibm maximo", "aspera", "qradar", "node.js", "nodejs",
+    # Renseignement de menace IBM ; « xforce » couvre la graphie sans tiret.
+    "x-force", "xforce",
     # Matériel et fournisseurs locaux
     "amag", "symmetry", "securitas", "genetec", "voo", "ores",
     "anker", "solix", "tp-link", "tplink",
@@ -1847,7 +1850,7 @@ NVD_VENDORS = (
     "veeam", "juniper", "vmware", "moveit",
     # Produits suivis comme cibles mais sans flux : NVD est leur seul canal rapide.
     "confluence", "jira", "okta", "adobe", "oracle", "manageengine",
-    "proton", "yahoo", "ibm", "qradar",
+    "proton", "yahoo", "ibm", "qradar", "aspera",
 )
 NVD_VENDOR_MAX = 3    # par editeur, pour qu'un seul produit ne mange pas la rubrique
 NVD_MAX = 30          # total par collecte

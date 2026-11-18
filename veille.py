@@ -1010,6 +1010,10 @@ RSS_SOURCES = [
     {"name": "Mandiant (GTIG)", "url": "https://feeds.feedburner.com/threatintelligence/pvexyqv7v0v", "category": INTEL},
     {"name": "Kubernetes Blog", "url": "https://kubernetes.io/feed.xml", "category": INTEL},
     {"name": "Malwarebytes Labs", "url": "https://www.malwarebytes.com/blog/feed/index.xml", "category": INTEL},
+    # Cloud, supply chain et réseau : trois angles que les éditeurs de sécurité ne couvrent pas.
+    {"name": "AWS Security Blog", "url": "https://aws.amazon.com/blogs/security/feed/", "category": INTEL},
+    {"name": "Snyk", "url": "https://snyk.io/blog/feed/", "category": INTEL},
+    {"name": "Cloudflare Blog", "url": "https://blog.cloudflare.com/rss/", "category": INTEL},
     {"name": "Bitdefender Labs", "url": "https://www.bitdefender.com/blog/api/rss/labs/", "category": INTEL},
     {"name": "Qualys", "url": "https://blog.qualys.com/feed", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
@@ -1105,6 +1109,7 @@ SOURCE_WEIGHTS = {
     "SANS ISC": 3, "Bitdefender Labs": 2, "Qualys": 2,
     "Mandiant (GTIG)": 3,
     "CISA ICS Advisories": 3, "Kubernetes Blog": 2, "Malwarebytes Labs": 2,
+    "AWS Security Blog": 2, "Snyk": 2, "Cloudflare Blog": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,

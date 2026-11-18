@@ -94,7 +94,7 @@ MAX_EMAIL_BYTES = _env_int("MAX_EMAIL_BYTES", 0, 0)
 # base64 = universel (tout serveur SMTP) ; 8bit = ~26 % plus léger mais suppose 8BITMIME (Gmail OK).
 EMAIL_ENCODING = _env_str("EMAIL_ENCODING", "base64").lower()
 
-WINDOW_HOURS = _env_int("WINDOW_HOURS", 48, 1, "FENETRE_HEURES")  # 48 h : rapport glissant sur 2 jours
+WINDOW_HOURS = _env_int("WINDOW_HOURS", 24, 1, "FENETRE_HEURES")  # 24 h : le mail est lu chaque jour
 KEV_DAYS = _env_int("KEV_DAYS", 2, 1, "CISA_JOURS")  # 2 : KEV ajoutées sur les 2 derniers jours
 MAX_PER_SOURCE = 30
 

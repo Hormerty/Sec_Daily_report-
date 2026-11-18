@@ -115,7 +115,8 @@ plain_art = v.Article(source="X", title="Random flaw", link="https://e/plain",
 assert v.choose_alerts({"X": [stack_art]}, set()) == [stack_art]   # seuil abaissé
 assert v.choose_alerts({"X": [plain_art]}, set()) == []            # seuil normal
 html_stack = v.render_html({"X": [stack_art]}, [])
-assert "Your stack (Box · Slack · Teams · Outlook · Microsoft 365)" in html_stack
+# L'en-tete se derive de la liste des produits : ajouter une stack ne doit pas casser ce test.
+assert "Your stack (" + " · ".join(v.STACK_PRODUCTS) + ")" in html_stack, html_stack[:400]
 assert "Box Drive flaw exploited" in html_stack
 print("Stack watch (section + alert threshold): OK")
 

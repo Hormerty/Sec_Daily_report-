@@ -481,6 +481,11 @@ STACK_PRODUCTS: dict[str, list[str]] = {
     "Outlook": ["outlook", "outlook web app", "outlook.com", "exchange online", "owa"],
     # Parapluie de Outlook et Teams : très bavard, donc filtré par _stack_watch_item().
     "Microsoft 365": ["microsoft 365", "office 365", "m365", "o365"],
+    # SIEM IBM : la qradar famille couvre SIEM, SOAR, EDR et Log Manager d'un seul motif.
+    "QRadar": [
+        "qradar", "qradar siem", "qradar soar", "qradar edr",
+        "qradar log manager", "qradar on cloud", "ibm qradar",
+    ],
 }
 
 # Ta stack + les produits critiques les plus exploités (liste inspirée de
@@ -503,7 +508,7 @@ KEYWORDS_TARGETS = [
     "vllm", "cups",
     # ERP / middleware
     "sap netweaver", "sap commerce", "oracle e-business suite",
-    "ibm websphere", "ibm maximo", "ibm aspera", "node.js", "nodejs",
+    "ibm websphere", "ibm maximo", "ibm aspera", "qradar", "node.js", "nodejs",
     # Matériel et fournisseurs locaux
     "amag", "symmetry", "securitas", "genetec", "voo", "ores",
     "anker", "solix", "tp-link", "tplink",
@@ -1842,7 +1847,7 @@ NVD_VENDORS = (
     "veeam", "juniper", "vmware", "moveit",
     # Produits suivis comme cibles mais sans flux : NVD est leur seul canal rapide.
     "confluence", "jira", "okta", "adobe", "oracle", "manageengine",
-    "proton", "yahoo", "ibm",
+    "proton", "yahoo", "ibm", "qradar",
 )
 NVD_VENDOR_MAX = 3    # par editeur, pour qu'un seul produit ne mange pas la rubrique
 NVD_MAX = 30          # total par collecte

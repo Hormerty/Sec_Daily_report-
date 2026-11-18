@@ -956,6 +956,8 @@ RSS_SOURCES = [
     {"name": "Jenkins", "url": "https://www.jenkins.io/security/advisories/rss.xml", "category": ALERTS},
     # Agregateur d'exploits : prend le relais d'Exploit-DB, dont le flux ne bouge plus qu'une fois par quinzaine.
     {"name": "Sploitus", "url": "https://sploitus.com/rss", "category": ALERTS},
+    # OT / ICS : seul canal couvrant les automates, que les CERT generalistes ne traitent pas.
+    {"name": "CISA ICS Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml", "category": ALERTS},
     {"name": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "category": ALERTS, "max": 5},
     {"name": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "category": ALERTS},
     {"name": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "category": ALERTS},
@@ -1006,6 +1008,8 @@ RSS_SOURCES = [
     {"name": "SANS ISC", "url": "https://isc.sans.edu/rssfeed.xml", "category": INTEL},
     # Mandiant a rejoint Google Cloud : mandiant.com redirige, le flux vit chez FeedBurner.
     {"name": "Mandiant (GTIG)", "url": "https://feeds.feedburner.com/threatintelligence/pvexyqv7v0v", "category": INTEL},
+    {"name": "Kubernetes Blog", "url": "https://kubernetes.io/feed.xml", "category": INTEL},
+    {"name": "Malwarebytes Labs", "url": "https://www.malwarebytes.com/blog/feed/index.xml", "category": INTEL},
     {"name": "Bitdefender Labs", "url": "https://www.bitdefender.com/blog/api/rss/labs/", "category": INTEL},
     {"name": "Qualys", "url": "https://blog.qualys.com/feed", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
@@ -1100,6 +1104,7 @@ SOURCE_WEIGHTS = {
     "Google Security Blog": 2, "VirusTotal Blog": 2,
     "SANS ISC": 3, "Bitdefender Labs": 2, "Qualys": 2,
     "Mandiant (GTIG)": 3,
+    "CISA ICS Advisories": 3, "Kubernetes Blog": 2, "Malwarebytes Labs": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,

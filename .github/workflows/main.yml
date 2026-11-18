@@ -13,7 +13,7 @@ on:
       fenetre_heures:
         description: "Fenêtre de collecte en heures (mettre 72 pour rattraper un run manqué)"
         required: false
-        default: "24"
+        default: "27"
       forcer:
         description: "Renvoyer même si le rapport du jour est déjà parti (true / false)"
         required: false
@@ -76,8 +76,8 @@ jobs:
           # 5 000 requetes/heure pour l'API Advisory au lieu de 60, partagees entre runners.
           GITHUB_TOKEN: ${{ github.token }}
           TZ: Europe/Brussels
-          # Rapport glissant sur 24 h
-          FENETRE_HEURES: ${{ inputs.fenetre_heures || '24' }}
+          # Rapport glissant sur 27 h : la journée écoulée plus la dérive possible entre créneaux
+          FENETRE_HEURES: ${{ inputs.fenetre_heures || '27' }}
           CISA_JOURS: "2"
           # "1" = rapport glissant : les articles de la veille réapparaissent dans le mail du jour
           # (choix d'origine du script). "0" = seulement les nouveautés depuis le dernier mail.

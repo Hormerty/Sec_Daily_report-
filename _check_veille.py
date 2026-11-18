@@ -244,7 +244,7 @@ try:
     assert len(articles_ignores) == 0, len(articles_ignores)
 finally:
     v.feedparser.parse = ancien_parse
-print("Rolling 24 h window: OK")
+print("Rolling 27 h window: OK")
 
 # --- Plafond d'e-mail --------------------------------------------------------
 def article(source: str, rang: int, tags: str = "", cves=()) -> v.Article:

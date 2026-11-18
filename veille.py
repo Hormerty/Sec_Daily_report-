@@ -1002,6 +1002,10 @@ RSS_SOURCES = [
     {"name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": INTEL},
     {"name": "Google Security Blog", "url": "https://security.googleblog.com/feeds/posts/default", "category": INTEL},
     {"name": "VirusTotal Blog", "url": "https://blog.virustotal.com/feeds/posts/default", "category": INTEL},
+    # SANS ISC : journaux d'incidents tenus par des praticiens, souvent la première source d'un IOC.
+    {"name": "SANS ISC", "url": "https://isc.sans.edu/rssfeed.xml", "category": INTEL},
+    {"name": "Bitdefender Labs", "url": "https://www.bitdefender.com/blog/api/rss/labs/", "category": INTEL},
+    {"name": "Qualys", "url": "https://blog.qualys.com/feed", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
     {"name": "Sekoia", "url": "https://www.sekoia.com/blog/rss.xml", "category": INTEL},
@@ -1092,6 +1096,7 @@ SOURCE_WEIGHTS = {
     "Infosecurity Magazine": 1,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
     "Google Security Blog": 2, "VirusTotal Blog": 2,
+    "SANS ISC": 3, "Bitdefender Labs": 2, "Qualys": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,

@@ -1012,6 +1012,9 @@ RSS_SOURCES = [
     {"name": "Malwarebytes Labs", "url": "https://www.malwarebytes.com/blog/feed/index.xml", "category": INTEL},
     # Cloud, supply chain et réseau : trois angles que les éditeurs de sécurité ne couvrent pas.
     {"name": "AWS Security Blog", "url": "https://aws.amazon.com/blogs/security/feed/", "category": INTEL},
+    # Secteur santé et plateforme macOS : deux angles absents, tous deux anglophones.
+    {"name": "HIPAA Journal", "url": "https://www.hipaajournal.com/feed/", "category": INTEL},
+    {"name": "Objective-See", "url": "https://objective-see.org/rss.xml", "category": INTEL},
     {"name": "Snyk", "url": "https://snyk.io/blog/feed/", "category": INTEL},
     {"name": "Cloudflare Blog", "url": "https://blog.cloudflare.com/rss/", "category": INTEL},
     {"name": "Bitdefender Labs", "url": "https://www.bitdefender.com/blog/api/rss/labs/", "category": INTEL},
@@ -1110,6 +1113,7 @@ SOURCE_WEIGHTS = {
     "Mandiant (GTIG)": 3,
     "CISA ICS Advisories": 3, "Kubernetes Blog": 2, "Malwarebytes Labs": 2,
     "AWS Security Blog": 2, "Snyk": 2, "Cloudflare Blog": 2,
+    "HIPAA Journal": 2, "Objective-See": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,

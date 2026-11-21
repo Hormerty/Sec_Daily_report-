@@ -365,6 +365,7 @@ with mock.patch.multiple(
     collect_euvd=lambda *a, **k: ([], None),
     collect_nvd_vendors=lambda *a, **k: ([], None),
     collect_metasploit_cves=lambda *a, **k: ([], None),
+    fetch_mirage_stats=lambda *a, **k: {},
     collect_source=lambda source, since, seen: ([], None),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -396,6 +397,7 @@ with mock.patch.multiple(
     collect_euvd=lambda *a, **k: ([], "EUVD (ENISA) : boom"),
     collect_nvd_vendors=lambda *a, **k: ([], "NVD (éditeurs) : boom"),
     collect_metasploit_cves=lambda *a, **k: ([], "Metasploit (CVE armées) : boom"),
+    fetch_mirage_stats=lambda *a, **k: {},
     collect_source=lambda source, since, seen: ([], f"{source['name']} : boom"),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -565,6 +567,7 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_euvd=lambda *a, **k: ([], None),
             collect_nvd_vendors=lambda *a, **k: ([], None),
             collect_metasploit_cves=lambda *a, **k: ([], None),
+            fetch_mirage_stats=lambda *a, **k: {},
             collect_source=lambda *a, **k: ([], None),
         ):
             code = v.main()
@@ -729,6 +732,37 @@ with tempfile.TemporaryDirectory() as _dossier_ms:
 print("Metasploit diff: OK")
 
 
+# --- Enrichissement par télémétrie OffSeq -------------------------------------
+# Aucune ligne ajoutée : seule la ligne de détail d'un article déjà présent gagne le contexte.
+class _RepMirage:
+    text = ("cve,name,kev,attempts,sources,first_seen,last_seen\n"
+            "CVE-2017-9841,PHPUnit eval-stdin RCE,true,67314,235,2026-11-14,2026-11-20\n")
+
+    def raise_for_status(self):
+        pass
+
+
+class _SessMirage:
+    def get(self, url, timeout=None):
+        return _RepMirage()
+
+
+_mirage = v.fetch_mirage_stats(_SessMirage())
+assert _mirage.get("CVE-2017-9841") == (67314, 235), _mirage
+_now_mirage = datetime.now(timezone.utc)
+_art_m = v.Article(source="S", title="CVE-2017-9841: PHPUnit", link="https://m/1",
+                   date=_now_mirage, category=v.ALERTS, detail="eval-stdin RCE",
+                   cves=("CVE-2017-9841",))
+_art_n = v.Article(source="S", title="Autre sujet", link="https://m/2",
+                   date=_now_mirage, category=v.NEWS)
+_groupes_m = {"S": [_art_m, _art_n]}
+assert v.enrich_with_mirage(_groupes_m, _mirage) == 1
+assert "67,314 attempts" in _art_m.detail and "235 sources" in _art_m.detail, _art_m.detail
+assert not _art_n.detail
+assert v.enrich_with_mirage(_groupes_m, {}) == 0
+print("Mirage enrichment: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True
@@ -869,6 +903,7 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_euvd=lambda *a, **k: ([], None),
             collect_nvd_vendors=lambda *a, **k: ([], None),
             collect_metasploit_cves=lambda *a, **k: ([], None),
+            fetch_mirage_stats=lambda *a, **k: {},
             collect_source=lambda source, since, seen: ([], None),
             enrich=lambda session, groups, cache: {},
             open_db=lambda: None,

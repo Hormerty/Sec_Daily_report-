@@ -89,6 +89,8 @@ KEV_CACHE_FILE = "kev_cache.json"  # dernier catalogue KEV réussi (secours hors
 METASPLOIT_URL = "https://feeds.ecrimelabs.net/data/metasploit-cve"
 METASPLOIT_CACHE_FILE = "metasploit_cache.json"
 METASPLOIT_MAX = _env_int("METASPLOIT_MAX", 10, 1)
+# Télémétrie des pots de miel OffSeq : nombre de tentatives observées par CVE sur sept jours.
+MIRAGE_URL = "https://feeds.offseq.com/mirage-feed/latest/cves-7d.csv"
 
 MAX_EMAIL_ARTICLES = _env_int("MAX_EMAIL_ARTICLES", 1000, 20, "MAX_ARTICLES_EMAIL")
 # 0 = aucun plafond de taille : le message part complet et Gmail en tronque seulement l'affichage
@@ -2141,6 +2143,64 @@ def collect_metasploit_cves(session: requests.Session):
     return articles, None
 
 
+def fetch_mirage_stats(session: requests.Session) -> dict[str, tuple[int, int]]:
+    """Tentatives observées par les pots de miel OffSeq, indexées par CVE.
+
+    Ce n'est pas une source d'articles mais un enrichissement : le KEV dit qu'une faille est
+    exploitée, ce flux dit à quel point elle est scannée. Renvoie un dictionnaire vide en cas
+    d'échec, sans jamais faire tomber la collecte.
+    """
+    try:
+        response = session.get(MIRAGE_URL, timeout=20)
+        response.raise_for_status()
+        lignes = response.text.splitlines()
+    except requests.RequestException as exc:
+        log.warning("Mirage feed: %s", exc)
+        return {}
+
+    stats: dict[str, tuple[int, int]] = {}
+    for ligne in lignes[1:]:
+        colonnes = ligne.split(",")
+        if len(colonnes) < 5:
+            continue
+        cve = colonnes[0].strip().upper()
+        if not cve.startswith("CVE-"):
+            continue
+        try:
+            tentatives, sources = int(colonnes[3]), int(colonnes[4])
+        except ValueError:
+            continue
+        stats[cve] = (tentatives, sources)
+    log.info("Mirage feed: %d CVE enrichies", len(stats))
+    return stats
+
+
+def enrich_with_mirage(groups: dict[str, list[Article]],
+                       stats: dict[str, tuple[int, int]]) -> int:
+    """Ajoute la télémétrie OffSeq au détail des articles citant une CVE concernée.
+
+    Retourne le nombre d'articles enrichis. Aucune ligne n'est ajoutée au rapport : seule la
+    ligne de détail existante gagne le contexte.
+    """
+    if not stats:
+        return 0
+    enrichis = 0
+    for articles in groups.values():
+        for article in articles:
+            for cve in article.cves:
+                info = stats.get(cve.upper())
+                if not info:
+                    continue
+                tentatives, sources = info
+                texte = f"{tentatives:,} attempts · {sources} sources (OffSeq honeypots)"
+                article.detail = f"{article.detail} · {texte}" if article.detail else texte
+                enrichis += 1
+                break
+    if enrichis:
+        log.info("Mirage feed: %d article(s) enrichi(s)", enrichis)
+    return enrichis
+
+
 def collect_github_advisories(session: requests.Session, since: datetime):
     """GitHub Advisory Database (API) : complète les flux RSS pour l'open source."""
     url = "https://api.github.com/advisories"
@@ -3157,6 +3217,8 @@ def main() -> int:
         results = dedupe_ransomware(results)
         errors = [err for _, err in results if err]
         groups, new_links = group_articles(results)
+        # Télémétrie des pots de miel : enrichit le détail des CVE déjà présentes, sans ligne de plus.
+        enrich_with_mirage(groups, fetch_mirage_stats(session))
         # Le rapport glissant repete un article deux jours : ce marqueur distingue les nouveautes.
         deja_vus = set(previous)
         fresh = {lien for lien in new_links if lien not in deja_vus}
@@ -3442,6 +3504,7 @@ def main_alert() -> int:
     results = dedupe_ransomware(results)
     errors = [err for _, err in results if err]
     groups, _ = group_articles(results)
+    enrich_with_mirage(groups, fetch_mirage_stats(session))
     # Le rapport quotidien enregistre ; ici on ne fait que lire le cache CVSS.
     candidates = preselect(groups, known)
     if candidates:

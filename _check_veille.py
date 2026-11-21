@@ -812,6 +812,56 @@ assert v.source_label({"nom": "X", "statut": "moved", "echecs": 0,
 print("Redirect detection: OK")
 
 
+# --- Recherche de l'adresse d'un flux mort ------------------------------------
+# Une source « dead » a peut-être seulement changé de chemin : la page d'accueil déclare
+# souvent son flux, et un candidat n'est retenu que s'il rend vraiment des entrées.
+_FLUX_MIN = (b'<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>'
+             b'<item><title>a</title></item><item><title>b</title></item>'
+             b'<item><title>c</title></item></channel></rss>')
+
+
+class _RepDecouv:
+    def __init__(self, url, text="", content=b"", ok=True):
+        self.url = url
+        self.text = text
+        self.content = content
+        self.ok = ok
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise v.requests.RequestException("404")
+
+
+class _SessDecouv:
+    def __init__(self, avec_flux=True):
+        self.avec_flux = avec_flux
+
+    def get(self, url, timeout=None, headers=None):
+        if url.rstrip("/") == "https://exemple.fr":
+            return _RepDecouv(url, text='<link rel="alternate" type="application/rss+xml" '
+                                        'href="/nouveau/feed.xml">')
+        if self.avec_flux and url == "https://exemple.fr/nouveau/feed.xml":
+            return _RepDecouv(url, content=_FLUX_MIN)
+        return _RepDecouv(url, ok=False)
+
+
+class _FluxFactice:
+    def __init__(self, n):
+        self.entries = [object()] * n
+
+
+_parse_decouv = v.feedparser.parse
+v.feedparser.parse = lambda contenu: _FluxFactice(3)
+try:
+    assert v.discover_feed(_SessDecouv(), "https://exemple.fr/vieux.xml") == \
+        "https://exemple.fr/nouveau/feed.xml"
+finally:
+    v.feedparser.parse = _parse_decouv
+# Sans flux valide derrière le candidat, on ne retient rien.
+assert v.discover_feed(_SessDecouv(avec_flux=False), "https://exemple.fr/vieux.xml") is None
+print("Feed discovery: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

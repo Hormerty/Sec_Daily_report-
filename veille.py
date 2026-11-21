@@ -1234,7 +1234,8 @@ def open_db() -> sqlite3.Connection | None:
                 nom TEXT PRIMARY KEY, url TEXT, categorie TEXT, poids INTEGER,
                 dernier_ok TEXT, dernier_article TEXT,
                 erreurs_consecutives INTEGER DEFAULT 0,
-                type_erreur TEXT, derniere_erreur TEXT, total_articles INTEGER DEFAULT 0
+                type_erreur TEXT, derniere_erreur TEXT, total_articles INTEGER DEFAULT 0,
+                candidat TEXT
             );
             """
         )
@@ -1242,6 +1243,11 @@ def open_db() -> sqlite3.Connection | None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(cves)")}
         if "ransomware" not in columns:
             conn.execute("ALTER TABLE cves ADD COLUMN ransomware INTEGER DEFAULT 0")
+            conn.commit()
+        # Migration : la colonne « candidat » n'existait pas avant la recherche d'adresse.
+        colonnes_sources = {row[1] for row in conn.execute("PRAGMA table_info(sources)")}
+        if "candidat" not in colonnes_sources:
+            conn.execute("ALTER TABLE sources ADD COLUMN candidat TEXT")
             conn.commit()
         return conn
     except sqlite3.Error as exc:
@@ -1350,7 +1356,7 @@ def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[di
     try:
         lignes = list(conn.execute(
             "SELECT nom, url, dernier_ok, dernier_article, erreurs_consecutives,"
-            " type_erreur, derniere_erreur, total_articles FROM sources"))
+            " type_erreur, derniere_erreur, total_articles, candidat FROM sources"))
         cadences = {}
         for source, dates in conn.execute(
                 "SELECT source, GROUP_CONCAT(DISTINCT substr(vu_le,1,10)) FROM articles"
@@ -1366,7 +1372,8 @@ def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[di
         return []
 
     etats = []
-    for nom, url, dernier_ok, dernier_article, echecs, type_erreur, erreur, total in lignes:
+    for (nom, url, dernier_ok, dernier_article, echecs, type_erreur, erreur,
+         total, candidat) in lignes:
         cadence = cadences.get(nom, 1)
         seuil = max(7, cadence * 3)
         age_article = None
@@ -1391,7 +1398,7 @@ def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[di
         etats.append({
             "nom": nom, "url": url, "statut": statut, "echecs": echecs,
             "type_erreur": type_erreur, "erreur": erreur, "total": total,
-            "age_article": age_article, "cadence": cadence,
+            "age_article": age_article, "cadence": cadence, "candidat": candidat,
         })
     ordre = {"dead": 0, "moved": 1, "blocked": 2, "flaky": 3, "quiet": 4, "active": 5}
     return sorted(etats, key=lambda e: (ordre.get(e["statut"], 9), -(e["echecs"] or 0), e["nom"]))
@@ -1406,6 +1413,8 @@ def source_label(etat: dict) -> str:
     if etat.get("statut") == "moved":
         cible = (etat.get("erreur") or "").replace("moved to ", "").strip()
         return f"{nom} → {cible}" if cible else f"{nom} (moved)"
+    if etat.get("candidat"):
+        return f"{nom} (dead) → feed found: {etat['candidat']}"
     echecs = etat.get("echecs") or 0
     return f"{nom} ({etat.get('statut')}, {echecs} run{'s' if echecs > 1 else ''})"
 
@@ -1618,6 +1627,65 @@ def fetch_feed(session: requests.Session, url: str):
             return response
         except requests.RequestException:
             raise exc
+
+
+FEED_GUESS_PATHS = ("/feed/", "/feed", "/rss", "/rss.xml", "/feed.xml", "/atom.xml",
+                    "/index.xml", "/feeds/posts/default")
+
+
+def discover_feed(session: requests.Session, url: str) -> str | None:
+    """Cherche l'adresse actuelle d'un flux dont l'URL configurée ne répond plus.
+
+    Deux pistes, dans cet ordre : ce que la page d'accueil déclare en `<link rel="alternate">`,
+    puis les chemins convenus. Chaque candidat est réellement parsé — un flux qui ne rend pas
+    au moins trois entrées n'est pas une trouvaille, c'est une page d'erreur bien habillée.
+    """
+    parties = urlsplit(url)
+    base = f"{parties.scheme}://{parties.netloc}"
+    candidats: list[str] = []
+
+    # La page d'accueil : deux agents, car plusieurs sites refusent celui qui se dit navigateur.
+    page = None
+    for entetes in ({"Accept": "text/html,*/*;q=0.8"},
+                    {"Accept": "text/html,*/*;q=0.8", "User-Agent": FEED_READER_UA}):
+        try:
+            reponse_page = session.get(base + "/", timeout=15, headers=entetes)
+            if reponse_page.ok:
+                page = reponse_page
+                break
+        except requests.RequestException:
+            continue
+    if page is not None:
+        try:
+            texte = page.text
+            # follow_redirects déjà appliqué par requests : une page d'accueil déplacée chez un
+            # autre domaine nous donne directement la bonne base de résolution.
+            base = f"{urlsplit(page.url).scheme}://{urlsplit(page.url).netloc}"
+            for m in re.finditer(
+                    r'<link[^>]+type="application/(?:rss|atom)\+xml"[^>]+href="([^"]+)"',
+                    texte, re.I):
+                candidats.append(urljoin(base, m.group(1)))
+            for m in re.finditer(r'href="([^"]*(?:/feed|/rss|\.xml)[^"]*)"', texte, re.I):
+                if len(candidats) < 8:
+                    candidats.append(urljoin(base, m.group(1)))
+        except (AttributeError, ValueError):
+            pass
+
+    candidats += [base + chemin for chemin in FEED_GUESS_PATHS]
+
+    deja_vus = {url}
+    for candidat in candidats:
+        if candidat in deja_vus:
+            continue
+        deja_vus.add(candidat)
+        try:
+            reponse = fetch_feed(session, candidat)   # bénéficie du repli d'agent
+            flux = feedparser.parse(reponse.content)
+        except (requests.RequestException, AttributeError):
+            continue
+        if len(flux.entries) >= 3:
+            return candidat
+    return None
 
 
 def _redirect_target(source: dict, response) -> str | None:
@@ -3473,6 +3541,21 @@ def main() -> int:
         # État durable des sources : on écrit d'abord, puis on lit pour le bandeau.
         record_source_results(conn, SOURCE_RESULTS)
         etats_sources = source_statuses(conn, now)
+        # Une source morte a peut-être seulement déménagé : on cherche son adresse actuelle,
+        # au plus deux par run pour ne pas transformer le rapport en robot d'exploration.
+        for etat in [e for e in etats_sources if e["statut"] == "dead" and not e["candidat"]][:2]:
+            trouve = discover_feed(session, etat["url"])
+            if not trouve:
+                continue
+            etat["candidat"] = trouve
+            if conn is not None:
+                try:
+                    conn.execute("UPDATE sources SET candidat = ? WHERE nom = ?",
+                                 (trouve, etat["nom"]))
+                    conn.commit()
+                except sqlite3.Error as exc:
+                    log.warning("Could not store feed candidate: %s", exc)
+            log.info("%s : nouvelle adresse trouvée %s", etat["nom"], trouve)
         en_panne = [e for e in etats_sources if e["statut"] in ("dead", "moved", "blocked")]
         if en_panne:
             log.info("Sources en panne : %s", ", ".join(

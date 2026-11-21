@@ -974,8 +974,11 @@ RSS_SOURCES = [
     {"name": "Databreaches.net", "url": "https://databreaches.net/feed/", "category": DARKWEB},
     # Autorite francaise : sanctions RGPD et suites des fuites de donnees.
     {"name": "CNIL", "url": "https://www.cnil.fr/fr/rss.xml", "category": DARKWEB, "country": "FR"},
+    # Ventes de bases revendiquees, souvent publiees avant toute confirmation : poids modere.
+    {"name": "Dark Web Informer", "url": "https://darkwebinformer.com/feed/", "category": DARKWEB},
     # Actualités & médias
     {"name": "BleepingComputer", "url": "https://www.bleepingcomputer.com/feed/", "category": NEWS},
+    {"name": "Cybersecurity Dive", "url": "https://www.cybersecuritydive.com/feeds/news/", "category": NEWS},
     {"name": "The Hacker News", "url": "https://feeds.feedburner.com/TheHackersNews", "category": NEWS},
     {"name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/", "category": NEWS},
     {"name": "The Record", "url": "https://therecord.media/feed", "category": NEWS},
@@ -1097,9 +1100,10 @@ SOURCE_WEIGHTS = {
     "NVD (éditeurs)": 2,
     "RansomLook": 2,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
-    "Databreaches.net": 2, "CNIL": 1,
+    "Databreaches.net": 2, "CNIL": 1, "Dark Web Informer": 2,
     "GitHub Advisory": 3,
     "BleepingComputer": 1, "The Hacker News": 1, "Krebs on Security": 2,
+    "Cybersecurity Dive": 2,
     "The Record": 2, "SecurityWeek": 1, "Dark Reading": 2, "Help Net Security": 1,
     "CyberScoop": 2, "Security Affairs": 1, "Wired Security": 1,
     "CSO Online": 1, "UnderNews": 1,

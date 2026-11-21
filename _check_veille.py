@@ -1084,6 +1084,43 @@ finally:
 print("HTML instead of feed: OK")
 
 
+# --- Signal fort exigé pour les sources bavardes ------------------------------
+# Mastodon : une offre d'emploi ou une opinion ne vaut pas une ligne de veille ; une CVE,
+# un acteur, un TTP ou un rançongiciel, oui.
+class _FluxAvecEntrees:
+    bozo = False
+
+    def __init__(self, entrees):
+        self.entries = entrees
+
+    def get(self, cle, defaut=None):
+        return "rss20"
+
+
+def _entree_test(texte):
+    return {"link": "https://bavarde/1", "title": "", "summary": texte,
+            "published": "Sat, 21 Nov 2026 10:00:00 GMT"}
+
+
+_src_bavarde = {"name": "Bavarde", "url": "https://bavarde/feed", "category": v.BLOGS,
+                "strong": True}
+_since_bavarde = datetime(2026, 11, 20, tzinfo=timezone.utc)
+_parse_avant = v.feedparser.parse
+try:
+    v.feedparser.parse = lambda c: _FluxAvecEntrees(
+        [_entree_test("Remote Senior Security Engineer at Ashby, apply here")])
+    _arts_bav, _ = v.collect_rss(_SessSimule(), _src_bavarde, _since_bavarde, set())
+    assert _arts_bav == [], "une offre d'emploi ne doit pas passer"
+    v.feedparser.parse = lambda c: _FluxAvecEntrees(
+        [_entree_test("CVE-2026-1234 allows remote code execution in the gateway")])
+    _arts_fort, _ = v.collect_rss(_SessSimule(), _src_bavarde, _since_bavarde, set())
+    assert len(_arts_fort) == 1 and _arts_fort[0].cves, _arts_fort
+finally:
+    v.feedparser.parse = _parse_avant
+assert next(s for s in v.RSS_SOURCES if s["name"] == "Mastodon (infosec)").get("strong") is True
+print("Strong signal: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

@@ -1082,7 +1082,7 @@ RSS_SOURCES = [
     {"name": "DoublePulsar", "url": "https://doublepulsar.com/feed", "category": BLOGS},
     {"name": "Pen Test Partners", "url": "https://www.pentestpartners.com/feed/", "category": BLOGS},
     # infosec.exchange ne publie plus de flux par hashtag ; mastodon.social, si.
-    {"name": "Mastodon (infosec)", "url": "https://mastodon.social/tags/infosec.rss", "category": BLOGS, "filter": True},
+    {"name": "Mastodon (infosec)", "url": "https://mastodon.social/tags/infosec.rss", "category": BLOGS, "filter": True, "strong": True, "max": 8},
 ]
 
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
@@ -1896,6 +1896,17 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
         score += SOURCE_WEIGHTS.get(source["name"], 0)
         # Le plafond d'âge n'est plus décidé ici : il dépend de la couverture du jour, donc il
         # s'applique après le regroupement (voir apply_corroboration).
+        badges = analyse_badges(short, countries)
+        cves_trouvees = tuple(sorted(extract_cves(short)))
+        ttps_trouves = detect_ttps(short)
+        acteurs_trouves = detect_actors(short)
+        # Sources bavardes (Mastodon) : sans CVE, sans acteur, sans TTP et sans rançongiciel,
+        # le billet est une opinion ou une offre d'emploi, pas une information de veille.
+        if source.get("strong") and not (cves_trouvees or ttps_trouves or acteurs_trouves
+                                         or "🔥" in badges):
+            skipped += 1
+            log.info("  skipped (no strong signal) [%s]: %s", source["name"], title)
+            continue
         articles.append(
             Article(
                 source=source["name"],
@@ -1903,14 +1914,14 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
                 link=link,
                 date=date,
                 category=source["category"],
-                tags=analyse_badges(short, countries),
+                tags=badges,
                 score=score,
                 severity=severity_badge(score),
                 countries=countries,
                 stack=detect_stack(short),
-                cves=tuple(sorted(extract_cves(short))),
-                ttps=detect_ttps(short),
-                actors=detect_actors(short),
+                cves=cves_trouvees,
+                ttps=ttps_trouves,
+                actors=acteurs_trouves,
             )
         )
     # Les plus dangereux d'abord : si le plafond par source est atteint, on garde l'essentiel

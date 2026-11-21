@@ -985,7 +985,6 @@ RSS_SOURCES = [
     # l'article ransomware est rattaché à cette rubrique et le doublon est écarté plus loin.
     {"name": "Help Net Security (Ransomware)", "url": "https://www.helpnetsecurity.com/tag/ransomware/feed/", "category": DARKWEB},
     {"name": "CyberScoop (Ransomware)", "url": "https://cyberscoop.com/tag/ransomware/feed/", "category": DARKWEB},
-    {"name": "The Record (Ransomware)", "url": "https://therecord.media/feed?tag=ransomware", "category": DARKWEB},
     {"name": "FrenchBreaches", "url": "https://frenchbreaches.com/feed.xml", "category": DARKWEB, "country": "FR"},
     {"name": "Databreaches.net", "url": "https://databreaches.net/feed/", "category": DARKWEB},
     # Autorite francaise : sanctions RGPD et suites des fuites de donnees.
@@ -1116,7 +1115,7 @@ SOURCE_WEIGHTS = {
     "NVD (éditeurs)": 2,
     "Metasploit (CVE armées)": 3,
     "RansomLook": 2,
-    "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
+    "CyberScoop (Ransomware)": 2, "FrenchBreaches": 2,
     "Databreaches.net": 2, "CNIL": 1, "Dark Web Informer": 2,
     "GitHub Advisory": 3,
     "BleepingComputer": 1, "The Hacker News": 1, "Krebs on Security": 2,

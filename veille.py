@@ -528,8 +528,9 @@ KEYWORDS_TARGETS = [
     # Compromission de la chaîne CI : « supply chain » seul ne suffisait pas à faire remonter
     # l'affaire wfx, qui plafonnait à 3 points pour un seuil d'affichage de 5.
     "supply chain", "github actions",
-    # Matériel et fournisseurs locaux
-    "amag", "symmetry", "securitas", "genetec", "voo", "ores",
+    # Matériel et fournisseurs locaux. Avigilon (Motorola) : vidéosurveillance, zéro CVE au
+    # NVD sur trente jours, mais un angle mort tant qu'aucun mot-clé ne le nomme.
+    "amag", "symmetry", "securitas", "genetec", "avigilon", "voo", "ores",
     "anker", "solix", "tp-link", "tplink",
     # Acces distant d'entreprise : meme famille que Citrix, Ivanti et les SSL-VPN.
     "teamviewer",
@@ -2278,7 +2279,7 @@ NVD_VENDORS = (
     "veeam", "juniper", "vmware", "moveit",
     # Produits suivis comme cibles mais sans flux : NVD est leur seul canal rapide.
     "confluence", "jira", "okta", "adobe", "oracle", "manageengine",
-    "proton", "yahoo", "ibm", "qradar", "aspera",
+    "proton", "yahoo", "ibm", "qradar", "aspera", "avigilon",
 )
 NVD_VENDOR_MAX = 3    # par editeur, pour qu'un seul produit ne mange pas la rubrique
 NVD_MAX = 30          # total par collecte

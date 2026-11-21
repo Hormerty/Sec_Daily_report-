@@ -1008,7 +1008,7 @@ RSS_SOURCES = [
     {"name": "Wired Security", "url": "https://www.wired.com/feed/category/security/latest/rss", "category": NEWS},
     {"name": "CSO Online", "url": "https://www.csoonline.com/feed/", "category": NEWS},
     {"name": "UnderNews", "url": "https://www.undernews.fr/feed", "category": NEWS},
-    {"name": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux-rss/thematique/securite/rss.xml", "category": NEWS},
+    {"name": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux/cybersecurite-conformite.xml", "category": NEWS},
     {"name": "IT-Connect", "url": "https://www.it-connect.fr/feed/", "category": NEWS, "filter": True},
     {"name": "01net", "url": "https://www.01net.com/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "Clubic", "url": "https://www.clubic.com/feed/rss", "category": NEWS, "filter": True, "max": 5},
@@ -1017,11 +1017,11 @@ RSS_SOURCES = [
     {"name": "TechCrunch (Security)", "url": "https://techcrunch.com/tag/cybersecurity/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "Graham Cluley", "url": "https://www.grahamcluley.com/feed/", "category": NEWS},
     {"name": "Security.nl", "url": "https://www.security.nl/rss/headlines.xml", "category": NEWS, "country": "NL"},
-    {"name": "The Register", "url": "https://www.theregister.com/headlines.atom", "category": NEWS},
+    {"name": "The Register", "url": "https://api.theregister.com/api/v1/article?orderBy=published&site_id=2&remapper=rss&content=node", "category": NEWS},
     {"name": "Infosecurity Magazine", "url": "https://www.infosecurity-magazine.com/rss/news/", "category": NEWS},
     # Threat intelligence / recherche
-    {"name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": INTEL},
-    {"name": "Google Security Blog", "url": "https://security.googleblog.com/feeds/posts/default", "category": INTEL},
+    {"name": "Google Project Zero", "url": "https://projectzero.google/feed.xml", "category": INTEL},
+    {"name": "Google Security Blog", "url": "https://blog.google/innovation-and-ai/technology/safety-security/rss/", "category": INTEL},
     {"name": "VirusTotal Blog", "url": "https://blog.virustotal.com/feeds/posts/default", "category": INTEL},
     # SANS ISC : journaux d'incidents tenus par des praticiens, souvent la première source d'un IOC.
     {"name": "SANS ISC", "url": "https://isc.sans.edu/rssfeed.xml", "category": INTEL},
@@ -1042,17 +1042,17 @@ RSS_SOURCES = [
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
     {"name": "Sekoia", "url": "https://www.sekoia.com/blog/rss.xml", "category": INTEL},
     {"name": "Check Point Research", "url": "https://research.checkpoint.com/feed/", "category": INTEL},
-    {"name": "Rapid7", "url": "https://www.rapid7.com/blog/rss/", "category": INTEL},
+    {"name": "Rapid7", "url": "https://www.rapid7.com/rss.xml", "category": INTEL},
     {"name": "Proofpoint", "url": "https://www.proofpoint.com/us/threat-insight-blog.xml", "category": INTEL},
-    {"name": "Group-IB", "url": "https://www.group-ib.com/blog/feed/", "category": INTEL},
+    {"name": "Group-IB", "url": "https://www.group-ib.com/feed/blogfeed/", "category": INTEL},
     {"name": "Wiz", "url": "https://www.wiz.io/feed/rss.xml", "category": INTEL},
     {"name": "ReversingLabs", "url": "https://www.reversinglabs.com/blog/rss.xml", "category": INTEL},
     {"name": "watchTowr Labs", "url": "https://labs.watchtowr.com/rss/", "category": INTEL},
-    {"name": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/feed/", "category": INTEL},
+    {"name": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/en/rss/feed/", "category": INTEL},
     {"name": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "category": INTEL},
     {"name": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "category": INTEL},
     {"name": "The DFIR Report", "url": "https://thedfirreport.com/feed/", "category": INTEL},
-    {"name": "SentinelOne Labs", "url": "https://labs.sentinelone.com/feed/", "category": INTEL},
+    {"name": "SentinelOne Labs", "url": "https://www.sentinelone.com/labs/feed/", "category": INTEL},
     {"name": "Elastic Security Labs", "url": "https://www.elastic.co/security-labs/rss/feed.xml", "category": INTEL},
     {"name": "Recorded Future", "url": "https://www.recordedfuture.com/feed/", "category": INTEL},
     {"name": "Red Canary", "url": "https://www.redcanary.com/blog/feed/", "category": INTEL},
@@ -1759,6 +1759,33 @@ def _redirect_target(source: dict, response) -> str | None:
     return None
 
 
+def _entry_date(entry) -> datetime | None:
+    """Date d'une entrée, avec repli sur les formats non conformes.
+
+    Certains flux omettent le fuseau horaire — « Wed, 18 Nov 2026 14:30:33 » — ce que la norme
+    exige : feedparser rejette alors la date et l'entrée est ignorée en silence. C'est ainsi que
+    Group-IB publiait 373 articles que le bot n'a jamais vus.
+    """
+    brut = (entry.get("published_parsed") or entry.get("updated_parsed")
+            or entry.get("created_parsed"))
+    if brut:
+        try:
+            return datetime(*brut[:6], tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            pass
+    for cle in ("published", "updated", "created"):
+        texte = str(entry.get(cle) or "").strip()
+        if not texte:
+            continue
+        for modele in ("%a, %d %b %Y %H:%M:%S", "%a, %d %b %Y %H:%M",
+                       "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(texte[:25], modele).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+    return None
+
+
 def collect_rss(session: requests.Session, source: dict, since: datetime,
                 seen: set[str]) -> tuple[list[Article], str | None]:
     """Retourne (articles, erreur_ou_None)."""
@@ -1790,13 +1817,8 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
     filtered = source.get("filter", False)
     skipped = 0
     for entry in feed.entries:
-        t = (entry.get("published_parsed") or entry.get("updated_parsed")
-             or entry.get("created_parsed"))
-        if not t:
-            continue
-        try:
-            date = datetime(*t[:6], tzinfo=timezone.utc)
-        except (TypeError, ValueError):
+        date = _entry_date(entry)
+        if date is None:
             continue
         if date < since:
             continue

@@ -930,6 +930,18 @@ assert "apache ofbiz" in v._metrics(_art_prod), v._metrics(_art_prod)
 print("Product extraction: OK")
 
 
+# --- Dates non conformes ------------------------------------------------------
+# Group-IB publie « Wed, 18 Nov 2026 14:30:33 », sans fuseau horaire : feedparser rejette,
+# et le bot ignorait 373 articles sans que rien ne le signale.
+assert v._entry_date({}) is None
+_date_sans_fuseau = v._entry_date({"published": "Wed, 18 Nov 2026 14:30:33"})
+assert _date_sans_fuseau is not None and _date_sans_fuseau.day == 18, _date_sans_fuseau
+assert _date_sans_fuseau.year == 2026 and _date_sans_fuseau.tzinfo is not None
+assert v._entry_date({"published_parsed": (2026, 11, 18, 14, 30, 33, 0, 0, 0)}).day == 18
+assert v._entry_date({"published": "n'importe quoi"}) is None
+print("Non-standard dates: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

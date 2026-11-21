@@ -1012,6 +1012,35 @@ assert v.REMINDERS_MIN_DAYS >= 3 and v.REMINDERS_MIN_DAYS < v.REMINDERS_DAYS
 print("Age cap: OK")
 
 
+# --- Couverture croisée : l'âge cède devant le nombre -------------------------
+# Trois sources qui reparlent de la même CVE valent mieux qu'un âge.
+_art_vieux_isole = v.Article(source="Sploitus", title="t", link="https://c/1",
+                             date=datetime.now(timezone.utc), category=v.ALERTS,
+                             score=16, severity=v.severity_badge(16),
+                             cves=("CVE-2021-44228",))
+_art_vieux_couvert = v.Article(source="Sploitus", title="t", link="https://c/2",
+                               date=datetime.now(timezone.utc), category=v.ALERTS,
+                               score=16, severity=v.severity_badge(16),
+                               cves=("CVE-2019-19781",))
+_art_kev_vieux = v.Article(source="CISA KEV", title="t", link="https://c/3",
+                           date=datetime.now(timezone.utc), category=v.ALERTS,
+                           score=16, severity=v.severity_badge(16),
+                           cves=("CVE-2018-13379",))
+_groupes_cov = {"A": [_art_vieux_isole], "B": [_art_vieux_couvert, _art_kev_vieux]}
+v.apply_corroboration(_groupes_cov, {
+    "CVE-2021-44228": {"Sploitus"},
+    "CVE-2019-19781": {"Sploitus", "BleepingComputer", "The Record", "CISA KEV"},
+    "CVE-2018-13379": {"CISA KEV"},
+})
+assert _art_vieux_isole.score == v.CRITICAL_THRESHOLD - 1, _art_vieux_isole.score
+assert _art_vieux_isole.severity == "🟠", _art_vieux_isole.severity
+assert _art_vieux_couvert.corroborated == 4, _art_vieux_couvert.corroborated
+assert _art_vieux_couvert.score > v.CRITICAL_THRESHOLD - 1, _art_vieux_couvert.score
+assert _art_kev_vieux.score == 16, "une KEV ne doit jamais être plafonnée par l'âge"
+assert "4 sources" in v._metrics(_art_vieux_couvert), v._metrics(_art_vieux_couvert)
+print("Cross-source coverage: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

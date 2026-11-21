@@ -645,6 +645,11 @@ def detect_stack(text: str) -> tuple[str, ...]:
 CRITICAL_THRESHOLD = 10    # 🔴
 IMPORTANT_THRESHOLD = 5    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
 
+# Couverture croisée : trois sources indépendantes qui reparlent de la même CVE le même jour
+# valent mieux qu'un âge. C'est l'indice d'une exploitation en masse, pas d'un vestige.
+CORROBORATION_MIN = _env_int("CORROBORATION_MIN", 3, 2)
+CORROBORATION_BONUS = _env_int("CORROBORATION_BONUS", 3, 0)
+
 # Pays de proximite immediate : Benelux et France, la ou se trouve le siege. Une mention de ces
 # pays pese plus lourd que le reste de l'empreinte IBM, victimes ransomware comprises.
 HOME_COUNTRIES = ("BE", "LU", "NL", "FR")
@@ -1169,6 +1174,7 @@ class Article:
     epss: float | None = None                          # probabilité d'exploitation (0 à 1)
     cvss: float | None = None                          # gravité technique (0 à 10)
     product: str | None = None                         # éditeur et produit visés (issu du CPE NVD)
+    corroborated: int = 0                              # sources distinctes ayant couvert la CVE
     also_covered: list[tuple[str, str]] = field(default_factory=list)  # (source, lien) de la même CVE
 
 
@@ -1868,12 +1874,8 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             countries = (home,) + countries
         score, _ = compute_criticality(short)
         score += SOURCE_WEIGHTS.get(source["name"], 0)
-        # Un exploit publié pour une faille de plus de deux ans n'a pas l'urgence d'une KEV du
-        # jour : il plafonne à orange, sinon log4shell remonte en tête chaque semaine.
-        if source.get("age_cap"):
-            annee = _oldest_cve_year(extract_cves(short))
-            if annee and datetime.now(timezone.utc).year - annee >= 2:
-                score = min(score, CRITICAL_THRESHOLD - 1)
+        # Le plafond d'âge n'est plus décidé ici : il dépend de la couverture du jour, donc il
+        # s'applique après le regroupement (voir apply_corroboration).
         articles.append(
             Article(
                 source=source["name"],
@@ -3004,6 +3006,10 @@ def _metrics(a: Article) -> str:
         parts.append("EPSS <1 %" if a.epss < 0.01 else f"EPSS {a.epss * 100:.0f} %")
     if a.cvss is not None:
         parts.append(f"CVSS {a.cvss:.1f}")
+    # Couverture inhabituelle : plusieurs rédactions en parlent, ce qui explique un score haut
+    # même sur une faille ancienne.
+    if a.corroborated >= CORROBORATION_MIN:
+        parts.append(f"{a.corroborated} sources")
     return " · ".join(parts)
 
 
@@ -3594,6 +3600,39 @@ def group_articles(results) -> tuple[dict[str, list[Article]], list[str]]:
     return groups, new_links
 
 
+def apply_corroboration(groups: dict[str, list[Article]],
+                        cve_sources: dict[str, set[str]]) -> int:
+    """Arbitre entre l'âge d'une faille et sa couverture du jour.
+
+    Trois sources indépendantes qui reparlent de la même CVE le même jour signalent une
+    exploitation active, même si la faille date de quatre ans. Inversement, un PoC isolé pour
+    une faille ancienne n'a pas l'urgence d'une KEV du jour : il plafonne à orange.
+
+    Retourne le nombre d'articles dont le score a changé.
+    """
+    plafonnees = {s["name"] for s in RSS_SOURCES if s.get("age_cap")}
+    modifiees = 0
+    for articles in groups.values():
+        for a in articles:
+            sources: set[str] = set()
+            for c in a.cves:
+                sources |= cve_sources.get(c, set())
+            a.corroborated = len(sources)
+            avant = a.score
+            if a.corroborated >= CORROBORATION_MIN:
+                a.score += CORROBORATION_BONUS      # couverture large : le signal est réel
+            elif a.source in plafonnees:
+                annee = _oldest_cve_year(a.cves)
+                if annee and datetime.now(timezone.utc).year - annee >= 2:
+                    a.score = min(a.score, CRITICAL_THRESHOLD - 1)
+            if a.score != avant:
+                a.severity = severity_badge(a.score)
+                modifiees += 1
+    for items in groups.values():
+        items.sort(key=lambda a: (a.score, a.date), reverse=True)
+    return modifiees
+
+
 def main() -> int:
     config = validate_config()  # échoue tout de suite si un secret manque
     now = datetime.now(TZ)
@@ -3668,6 +3707,14 @@ def main() -> int:
             infos = enrich(session, groups, load_cvss_cache(conn), load_products(conn))
         except Exception as exc:  # noqa: BLE001
             log.warning("EPSS/CVSS enrichment skipped: %s", exc)
+        # Couverture croisée calculée sur les résultats bruts : un article replié par la
+        # déduplication compte quand même comme une source ayant parlé de la CVE.
+        cve_sources: dict[str, set[str]] = {}
+        for articles_bruts, _ in results:
+            for a_brut in articles_bruts:
+                for c_brut in a_brut.cves:
+                    cve_sources.setdefault(c_brut, set()).add(a_brut.source)
+        apply_corroboration(groups, cve_sources)
         groups = dict(sorted(groups.items(), key=lambda kv: CATEGORY_ORDER.index(kv[1][0].category)))
 
         reminders: list[dict] = []

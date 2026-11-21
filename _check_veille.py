@@ -364,6 +364,7 @@ with mock.patch.multiple(
     collect_hibp=lambda *a, **k: ([], None),
     collect_euvd=lambda *a, **k: ([], None),
     collect_nvd_vendors=lambda *a, **k: ([], None),
+    collect_metasploit_cves=lambda *a, **k: ([], None),
     collect_source=lambda source, since, seen: ([], None),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -394,6 +395,7 @@ with mock.patch.multiple(
     collect_hibp=lambda *a, **k: ([], "Have I Been Pwned : boom"),
     collect_euvd=lambda *a, **k: ([], "EUVD (ENISA) : boom"),
     collect_nvd_vendors=lambda *a, **k: ([], "NVD (éditeurs) : boom"),
+    collect_metasploit_cves=lambda *a, **k: ([], "Metasploit (CVE armées) : boom"),
     collect_source=lambda source, since, seen: ([], f"{source['name']} : boom"),
     enrich=lambda session, groups, cache: {},
     sync_kev=lambda conn, vulns: None,
@@ -562,6 +564,7 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_hibp=lambda *a, **k: ([], None),
             collect_euvd=lambda *a, **k: ([], None),
             collect_nvd_vendors=lambda *a, **k: ([], None),
+            collect_metasploit_cves=lambda *a, **k: ([], None),
             collect_source=lambda *a, **k: ([], None),
         ):
             code = v.main()
@@ -692,6 +695,38 @@ with tempfile.TemporaryDirectory() as _dossier:
         _conn.close()
         v.DB_FILE = _ancienne_db
 print("Silent sources: OK")
+
+
+# --- Modules Metasploit : seule la nouveauté compte ---------------------------
+# La source est une liste cumulative de plus de trois mille CVE : publier son contenu serait
+# absurde, et un premier passage sans cache ne doit rien sortir.
+with tempfile.TemporaryDirectory() as _dossier_ms:
+    _ancien_cache_ms = v.METASPLOIT_CACHE_FILE
+    v.METASPLOIT_CACHE_FILE = str(Path(_dossier_ms) / "metasploit.json")
+
+    class _RepMs:
+        text = "CVE-2026-1111\nCVE-2026-2222\n"
+
+        def raise_for_status(self):
+            pass
+
+    class _SessMs:
+        def get(self, url, timeout=None):
+            return _RepMs()
+
+    try:
+        assert v.collect_metasploit_cves(_SessMs())[0] == []   # première base : rien
+        assert v.collect_metasploit_cves(_SessMs())[0] == []   # rien de neuf
+        _RepMs.text = "CVE-2026-1111\nCVE-2026-2222\nCVE-2026-3333\n"
+        _arts_ms = v.collect_metasploit_cves(_SessMs())[0]
+        assert len(_arts_ms) == 1, _arts_ms
+        assert _arts_ms[0].cves == ("CVE-2026-3333",), _arts_ms[0].cves
+        _RepMs.text = "CVE-2026-1111\n"                         # source tronquée
+        v.collect_metasploit_cves(_SessMs())
+        assert len(v._read_metasploit_cache()) == 3, v._read_metasploit_cache()
+    finally:
+        v.METASPLOIT_CACHE_FILE = _ancien_cache_ms
+print("Metasploit diff: OK")
 
 
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
@@ -833,6 +868,7 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_hibp=lambda *a, **k: ([], None),
             collect_euvd=lambda *a, **k: ([], None),
             collect_nvd_vendors=lambda *a, **k: ([], None),
+            collect_metasploit_cves=lambda *a, **k: ([], None),
             collect_source=lambda source, since, seen: ([], None),
             enrich=lambda session, groups, cache: {},
             open_db=lambda: None,

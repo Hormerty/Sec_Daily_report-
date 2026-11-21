@@ -85,6 +85,10 @@ SEEN_MAX = 3000
 DB_FILE = "stats.db"             # statistiques historiques SQLite (commité aussi)
 DB_RETENTION_DAYS = 400
 KEV_CACHE_FILE = "kev_cache.json"  # dernier catalogue KEV réussi (secours hors ligne)
+# Liste cumulative des CVE dotées d'un module Metasploit : seule la différence importe.
+METASPLOIT_URL = "https://feeds.ecrimelabs.net/data/metasploit-cve"
+METASPLOIT_CACHE_FILE = "metasploit_cache.json"
+METASPLOIT_MAX = _env_int("METASPLOIT_MAX", 10, 1)
 
 MAX_EMAIL_ARTICLES = _env_int("MAX_EMAIL_ARTICLES", 1000, 20, "MAX_ARTICLES_EMAIL")
 # 0 = aucun plafond de taille : le message part complet et Gmail en tronque seulement l'affichage
@@ -909,6 +913,7 @@ SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
 SOURCE_HIBP = "Have I Been Pwned"
 SOURCE_EUVD = "EUVD (ENISA)"
 SOURCE_NVD = "NVD (éditeurs)"
+SOURCE_METASPLOIT = "Metasploit (CVE armées)"
 # Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
 RANSOMWARE_API_KEY = _env_str("RANSOMWARE_API_KEY", "")
 # Jeton GitHub pour l'API Advisory : 5 000 requetes/heure au lieu de 60, quota partage entre tous
@@ -919,7 +924,7 @@ GITHUB_TOKEN = _env_str("GITHUB_TOKEN", "", "GH_TOKEN")
 # s'en deduit, donc ajouter un collecteur sans mettre le compteur a jour devient impossible.
 EXTRA_SOURCE_NAMES = (
     SOURCE_KEV, SOURCE_GITHUB, SOURCE_RANSOMWARE_API,
-    SOURCE_HIBP, SOURCE_EUVD, SOURCE_NVD,
+    SOURCE_HIBP, SOURCE_EUVD, SOURCE_NVD, SOURCE_METASPLOIT,
 )
 EXTRA_SOURCES = len(EXTRA_SOURCE_NAMES)
 # Pistes API non câblées ici car elles ne produisent pas des articles RSS :
@@ -1101,6 +1106,7 @@ SOURCE_WEIGHTS = {
     "Ransomware.live (victims)": 2,
     "Have I Been Pwned": 2, "EUVD (ENISA)": 3,
     "NVD (éditeurs)": 2,
+    "Metasploit (CVE armées)": 3,
     "RansomLook": 2,
     "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
     "Databreaches.net": 2, "CNIL": 1, "Dark Web Informer": 2,
@@ -2062,6 +2068,77 @@ def collect_cisa_kev(session: requests.Session, seen: set[str]):
     articles.sort(key=lambda a: (a.score, a.date), reverse=True)
     log.info("CISA KEV: %d new", len(articles))
     return articles[:MAX_KEV], None
+
+
+def _read_metasploit_cache() -> set[str]:
+    try:
+        data = json.loads(Path(METASPLOIT_CACHE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    cves = data.get("cves", [])
+    return {str(c).upper() for c in cves} if isinstance(cves, list) else set()
+
+
+def _write_metasploit_cache(cves: set[str]) -> None:
+    _write_json_atomic(
+        METASPLOIT_CACHE_FILE,
+        {"fetched_at": datetime.now(timezone.utc).isoformat(),
+         "count": len(cves), "cves": sorted(cves)},
+    )
+
+
+def collect_metasploit_cves(session: requests.Session):
+    """Signale les CVE qui viennent de recevoir un module Metasploit.
+
+    La liste de la source est cumulative (plus de trois mille CVE depuis 1999) : l'information
+    n'est pas son contenu mais sa différence avec la veille précédente. Un module public marque
+    le passage du simple PoC au stade armé, souvent avant l'inscription au KEV.
+    """
+    try:
+        response = session.get(METASPLOIT_URL, timeout=TIMEOUT)
+        response.raise_for_status()
+        texte = response.text
+    except requests.RequestException as exc:
+        log.warning("%s: %s", SOURCE_METASPLOIT, exc)
+        return [], f"{SOURCE_METASPLOIT}: {exc}"
+
+    actuels = {m.group(0).upper() for m in RE_CVE.finditer(texte)}
+    if not actuels:
+        return [], f"{SOURCE_METASPLOIT}: liste vide"
+
+    connus = _read_metasploit_cache()
+    # Premier passage : on enregistre la base sans publier trois mille lignes d'un coup.
+    if not connus:
+        _write_metasploit_cache(actuels)
+        log.info("%s: base de %d CVE enregistrée", SOURCE_METASPLOIT, len(actuels))
+        return [], None
+
+    nouveaux = sorted(actuels - connus)
+    # Union : si la source tronque sa liste un jour, on ne perd pas la mémoire des CVE connues.
+    _write_metasploit_cache(connus | actuels)
+
+    articles = []
+    for cve in nouveaux[:METASPLOIT_MAX]:
+        titre = f"{cve}: Metasploit module published"
+        score, _ = compute_criticality(titre)
+        score += 6  # module armé : même bonus qu'une exploitation constatée
+        articles.append(
+            Article(
+                source=SOURCE_METASPLOIT,
+                title=titre,
+                link=f"https://nvd.nist.gov/vuln/detail/{cve}",
+                date=datetime.now(timezone.utc),
+                category=ALERTS,
+                detail="Public exploit module added to Metasploit",
+                score=score,
+                severity=severity_badge(score),
+                cves=(cve,),
+            )
+        )
+    log.info("%s: %d new", SOURCE_METASPLOIT, len(articles))
+    return articles, None
 
 
 def collect_github_advisories(session: requests.Session, since: datetime):
@@ -3068,6 +3145,11 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             log.exception("%s: unexpected failure", SOURCE_NVD)
             results.append(([], f"{SOURCE_NVD}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_metasploit_cves(session))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_METASPLOIT)
+            results.append(([], f"{SOURCE_METASPLOIT}: unexpected error ({type(exc).__name__})"))
         with ThreadPoolExecutor(max_workers=8) as pool:
             results += list(pool.map(
                 lambda s: collect_source(s, since, seen), RSS_SOURCES))
@@ -3349,6 +3431,11 @@ def main_alert() -> int:
     except Exception as exc:  # noqa: BLE001
         log.exception("%s: unexpected failure", SOURCE_NVD)
         results.append(([], f"{SOURCE_NVD}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_metasploit_cves(session))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_METASPLOIT)
+        results.append(([], f"{SOURCE_METASPLOIT}: unexpected error ({type(exc).__name__})"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         results += list(pool.map(lambda s: collect_source(s, since, set()), RSS_SOURCES))
 

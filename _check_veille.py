@@ -862,6 +862,23 @@ assert v.discover_feed(_SessDecouv(avec_flux=False), "https://exemple.fr/vieux.x
 print("Feed discovery: OK")
 
 
+# --- Lien de recherche pour une source introuvable ----------------------------
+# Le suffixe entre parentheses est retire : « Mandiant (GTIG) » ne renvoie presque rien.
+_lien_rech = v.feed_search_url("Mandiant (GTIG)")
+assert "%22Mandiant%22" in _lien_rech, _lien_rech
+assert "GTIG" not in _lien_rech, _lien_rech
+_art_rech = v.Article(source="S", title="t", link="https://n/rech",
+                      date=datetime.now(timezone.utc), category=v.NEWS)
+_etats_rech = [
+    {"nom": "Perdue", "statut": "dead", "echecs": 4, "candidat": None},
+    {"nom": "Trouvee", "statut": "dead", "echecs": 4, "candidat": "https://x/rss"},
+]
+_html_rech = v.render_html({"S": [_art_rech]}, [], None, [], [], source_states=_etats_rech)
+assert _html_rech.count("search</a>") == 1, _html_rech.count("search</a>")
+assert "https://x/rss" in _html_rech
+print("Search link: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

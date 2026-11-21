@@ -31,7 +31,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import quote, quote_plus, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -1402,6 +1402,17 @@ def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[di
         })
     ordre = {"dead": 0, "moved": 1, "blocked": 2, "flaky": 3, "quiet": 4, "active": 5}
     return sorted(etats, key=lambda e: (ordre.get(e["statut"], 9), -(e["echecs"] or 0), e["nom"]))
+
+
+def feed_search_url(nom: str) -> str:
+    """Lien de recherche pour retrouver le flux d'une source que le bot n'a pas suivi.
+
+    La requête utile n'est pas « où est passé X » : un moteur répond mieux au nom exact de la
+    source suivi de « RSS feed ». Le suffixe entre parenthèses est retiré, car « Mandiant
+    (GTIG) » ne renvoie presque rien alors que « Mandiant » trouve la page en premier.
+    """
+    propre = re.sub(r"\s*\([^)]*\)\s*$", "", nom).strip() or nom
+    return "https://www.google.com/search?q=" + quote_plus(f'"{propre}" RSS feed')
 
 
 def source_label(etat: dict) -> str:
@@ -3047,10 +3058,20 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         )
     if source_states:
         # État durable : ces sources échouent run après run, ce n'est plus un incident isolé.
+        morceaux = []
+        for s in source_states[:10]:
+            libelle = e(source_label(s))
+            # Le bot n'a pas su retrouver l'adresse : on donne la recherche à faire à la main.
+            if s.get("statut") == "dead" and not s.get("candidat"):
+                lien = e(feed_search_url(s.get("nom", "")), quote=True)
+                morceaux.append(f'{libelle} <a href="{lien}" target="_blank" '
+                                f'rel="noopener noreferrer">search</a>')
+            else:
+                morceaux.append(libelle)
         parts.append(
             '<p style="background:#f8d7da;padding:8px;border-radius:4px">🚫 Broken sources '
             '(consecutive failures, not a one-off): '
-            + e(", ".join(source_label(s) for s in source_states[:10]))
+            + ", ".join(morceaux)
             + "</p>"
         )
 
@@ -3244,8 +3265,14 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
         lines.append("Silent sources (no article for 14+ days, feed still answering): "
                      + ", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
     if source_states:
+        morceaux = []
+        for s in source_states[:10]:
+            libelle = source_label(s)
+            if s.get("statut") == "dead" and not s.get("candidat"):
+                libelle += f" [search: {feed_search_url(s.get('nom', ''))}]"
+            morceaux.append(libelle)
         lines.append("Broken sources (consecutive failures, not a one-off): "
-                     + ", ".join(source_label(s) for s in source_states[:10]))
+                     + ", ".join(morceaux))
     top = top_priorities(displayed)
     if top:
         lines.append("\n##### TOP PRIORITIES TODAY #####")

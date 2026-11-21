@@ -1168,6 +1168,7 @@ class Article:
     actors: tuple[str, ...] = ()                       # acteurs canoniques détectés
     epss: float | None = None                          # probabilité d'exploitation (0 à 1)
     cvss: float | None = None                          # gravité technique (0 à 10)
+    product: str | None = None                         # éditeur et produit visés (issu du CPE NVD)
     also_covered: list[tuple[str, str]] = field(default_factory=list)  # (source, lien) de la même CVE
 
 
@@ -1223,7 +1224,7 @@ def open_db() -> sqlite3.Connection | None:
             );
             CREATE TABLE IF NOT EXISTS cves (
                 cve TEXT PRIMARY KEY, vue_le TEXT NOT NULL, epss REAL, cvss REAL, kev INTEGER DEFAULT 0,
-                ransomware INTEGER DEFAULT 0
+                ransomware INTEGER DEFAULT 0, produit TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_articles_date ON articles(vu_le);
             CREATE INDEX IF NOT EXISTS idx_cves_date ON cves(vue_le);
@@ -1243,6 +1244,10 @@ def open_db() -> sqlite3.Connection | None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(cves)")}
         if "ransomware" not in columns:
             conn.execute("ALTER TABLE cves ADD COLUMN ransomware INTEGER DEFAULT 0")
+            conn.commit()
+        # Migration : le produit visé n'était pas stocké avant l'affichage des cibles.
+        if "produit" not in columns:
+            conn.execute("ALTER TABLE cves ADD COLUMN produit TEXT")
             conn.commit()
         # Migration : la colonne « candidat » n'existait pas avant la recherche d'adresse.
         colonnes_sources = {row[1] for row in conn.execute("PRAGMA table_info(sources)")}
@@ -1462,6 +1467,17 @@ def load_cvss_cache(conn: sqlite3.Connection | None) -> dict[str, float]:
         return {}
 
 
+def load_products(conn: sqlite3.Connection | None) -> dict[str, str]:
+    """Produits déjà connus : un CVE vu hier n'a pas besoin d'être réinterrogé pour son CPE."""
+    if conn is None:
+        return {}
+    try:
+        return {c: p for c, p in conn.execute(
+            "SELECT cve, produit FROM cves WHERE produit IS NOT NULL AND produit != ''")}
+    except sqlite3.Error:
+        return {}
+
+
 def store_stats(conn: sqlite3.Connection | None, groups: dict[str, list[Article]],
                 infos: dict[str, dict], today: str) -> None:
     if conn is None:
@@ -1480,13 +1496,15 @@ def store_stats(conn: sqlite3.Connection | None, groups: dict[str, list[Article]
         ransom = {c for a in articles if a.source == SOURCE_KEV and "🔥" in a.tags
                   for c in extract_cves(a.title)}
         conn.executemany(
-            "INSERT INTO cves (cve, vue_le, epss, cvss, kev, ransomware) VALUES (?,?,?,?,?,?) "
+            "INSERT INTO cves (cve, vue_le, epss, cvss, kev, ransomware, produit)"
+            " VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT(cve) DO UPDATE SET "
             "epss=COALESCE(excluded.epss, cves.epss), cvss=COALESCE(excluded.cvss, cves.cvss), "
             "kev=MAX(COALESCE(cves.kev, 0), excluded.kev), "
-            "ransomware=MAX(COALESCE(cves.ransomware, 0), excluded.ransomware)",
-            [(c, today, i.get("epss"), i.get("cvss"), int(c in kev), int(c in ransom))
-             for c, i in infos.items()],
+            "ransomware=MAX(COALESCE(cves.ransomware, 0), excluded.ransomware), "
+            "produit=COALESCE(excluded.produit, cves.produit)",
+            [(c, today, i.get("epss"), i.get("cvss"), int(c in kev), int(c in ransom),
+              i.get("produit")) for c, i in infos.items()],
         )
         cutoff = (datetime.fromisoformat(today) - timedelta(days=DB_RETENTION_DAYS)).date().isoformat()
         conn.execute("DELETE FROM articles WHERE vu_le < ?", (cutoff,))
@@ -2681,40 +2699,60 @@ def extract_cvss(cve_json: dict) -> float | None:
     return None
 
 
-def fetch_cvss(session: requests.Session, cve: str) -> tuple[float | None, bool]:
-    """Retourne (score_ou_None, limite_de_debit_atteinte)."""
+def extract_product(cve_json: dict) -> str | None:
+    """Éditeur et produit visés, lus dans le premier CPE du NVD.
+
+    Un titre Sploitus dit « CVE-2023-25157 exploit » et rien d'autre ; la réponse NVD contient
+    déjà « cpe:2.3:a:apache:ofbiz:… », donc l'information ne coûte aucune requête de plus.
+    """
+    for configuration in cve_json.get("configurations") or []:
+        for node in configuration.get("nodes") or []:
+            for match in node.get("cpeMatch") or []:
+                morceaux = str(match.get("criteria") or "").split(":")
+                if len(morceaux) > 4:
+                    editeur, produit = morceaux[3], morceaux[4]
+                    if editeur not in ("", "*", "-") and produit not in ("", "*", "-"):
+                        return f"{editeur} {produit}".replace("_", " ").strip()
+    return None
+
+
+def fetch_cvss(session: requests.Session, cve: str) -> tuple[float | None, bool, str | None]:
+    """Retourne (score, limite_de_debit_atteinte, produit_ou_None)."""
     headers = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
     try:
         r = session.get(NVD_URL, params={"cveId": cve}, headers=headers, timeout=20)
     except requests.RequestException as exc:
         log.warning("NVD %s: %s", cve, exc)
-        return None, False
+        return None, False, None
     if r.status_code == 403:
         log.warning("NVD 403 for %s: missing/invalid API key or access denied (%s)",
                     cve, r.text[:160])
-        return None, True
+        return None, True, None
     if r.status_code == 429:
         log.warning("NVD: rate limit reached, stopping CVSS lookups for this run")
-        return None, True
+        return None, True, None
     if r.status_code != 200:
-        return None, False
+        return None, False, None
     try:
         vulns = r.json().get("vulnerabilities", [])
     except ValueError:
-        return None, False
+        return None, False, None
     if not vulns:
-        return None, False  # CVE trop récente, pas encore analysée par le NVD
-    return extract_cvss(vulns[0].get("cve", {})), False
+        return None, False, None  # CVE trop récente, pas encore analysée par le NVD
+    cve_json = vulns[0].get("cve", {})
+    return extract_cvss(cve_json), False, extract_product(cve_json)
 
 
 def enrich(session: requests.Session, groups: dict[str, list[Article]],
-           cvss_cache: dict[str, float]) -> dict[str, dict]:
-    """Ajoute EPSS/CVSS aux articles qui citent des CVE, puis recalcule score et pastille."""
+           cvss_cache: dict[str, float],
+           product_cache: dict[str, str] | None = None) -> dict[str, dict]:
+    """Ajoute EPSS/CVSS/produit aux articles qui citent des CVE, puis recalcule score et pastille."""
     articles = [a for v in groups.values() for a in v if a.cves]
     if not articles:
         return {}
     all_cves = sorted({c for a in articles for c in a.cves})
     epss = fetch_epss(session, all_cves)
+    produits = dict(product_cache or {})
 
     # CVSS : CVE des articles les plus dangereux d'abord, en respectant la limite de débit du NVD
     order: list[str] = []
@@ -2728,9 +2766,11 @@ def enrich(session: requests.Session, groups: dict[str, list[Article]],
     for i, c in enumerate(to_fetch):
         if i:
             time.sleep(pause)
-        score, rate_limited = fetch_cvss(session, c)
+        score, rate_limited, produit = fetch_cvss(session, c)
         if score is not None:
             cvss[c] = score
+        if produit:
+            produits[c] = produit
         if rate_limited:
             break
     log.info("CVSS: %d/%d CVE filled (cache included)", len(cvss), len(all_cves))
@@ -2740,13 +2780,15 @@ def enrich(session: requests.Session, groups: dict[str, list[Article]],
         c_values = [cvss[c] for c in a.cves if c in cvss]
         a.epss = max(e_values) if e_values else None
         a.cvss = max(c_values) if c_values else None
+        a.product = next((produits[c] for c in a.cves if c in produits), None)
         a.score += enrichment_bonus(a.epss, a.cvss)
         if a.source == SOURCE_KEV and KEV_ALWAYS_CRITICAL:
             a.score = max(a.score, CRITICAL_THRESHOLD)
         a.severity = severity_badge(a.score)
     for items in groups.values():
         items.sort(key=lambda a: (a.score, a.date), reverse=True)
-    return {c: {"epss": epss.get(c), "cvss": cvss.get(c)} for c in all_cves}
+    return {c: {"epss": epss.get(c), "cvss": cvss.get(c), "produit": produits.get(c)}
+            for c in all_cves}
 
 
 # --- Rendu -------------------------------------------------------------------
@@ -2901,6 +2943,9 @@ def _badges(a: Article) -> str:
 
 def _metrics(a: Article) -> str:
     parts = []
+    # Le produit visé d'abord : « apache ofbiz » vaut mieux qu'un simple numéro de CVE.
+    if a.product:
+        parts.append(a.product)
     if a.epss is not None:
         parts.append("EPSS <1 %" if a.epss < 0.01 else f"EPSS {a.epss * 100:.0f} %")
     if a.cvss is not None:
@@ -3563,7 +3608,7 @@ def main() -> int:
         # Enrichissements optionnels : une panne ne doit jamais empêcher l'envoi du rapport
         infos: dict[str, dict] = {}
         try:
-            infos = enrich(session, groups, load_cvss_cache(conn))
+            infos = enrich(session, groups, load_cvss_cache(conn), load_products(conn))
         except Exception as exc:  # noqa: BLE001
             log.warning("EPSS/CVSS enrichment skipped: %s", exc)
         groups = dict(sorted(groups.items(), key=lambda kv: CATEGORY_ORDER.index(kv[1][0].category)))
@@ -3886,7 +3931,7 @@ def main_alert() -> int:
     if candidates:
         conn = open_db()
         try:
-            enrich(session, candidates, load_cvss_cache(conn))
+            enrich(session, candidates, load_cvss_cache(conn), load_products(conn))
         except Exception as exc:  # noqa: BLE001 - sans EPSS/CVSS on garde le score de base
             log.warning("EPSS/CVSS enrichment skipped: %s", exc)
         finally:

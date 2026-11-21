@@ -367,7 +367,7 @@ with mock.patch.multiple(
     collect_metasploit_cves=lambda *a, **k: ([], None),
     fetch_mirage_stats=lambda *a, **k: {},
     collect_source=lambda source, since, seen: ([], None),
-    enrich=lambda session, groups, cache: {},
+    enrich=lambda session, groups, cache, *a, **k: {},
     sync_kev=lambda conn, vulns: None,
     kev_reminders=lambda *a, **k: [],
     top_vendors=lambda *a, **k: [],
@@ -399,7 +399,7 @@ with mock.patch.multiple(
     collect_metasploit_cves=lambda *a, **k: ([], "Metasploit (CVE armées) : boom"),
     fetch_mirage_stats=lambda *a, **k: {},
     collect_source=lambda source, since, seen: ([], f"{source['name']} : boom"),
-    enrich=lambda session, groups, cache: {},
+    enrich=lambda session, groups, cache, *a, **k: {},
     sync_kev=lambda conn, vulns: None,
     kev_reminders=lambda *a, **k: [],
     top_vendors=lambda *a, **k: [],
@@ -915,6 +915,21 @@ with tempfile.TemporaryDirectory() as _d_purge:
 print("Moved vs broken: OK")
 
 
+# --- Produit visé, lu dans le CPE du NVD --------------------------------------
+# Un titre Sploitus ne dit que « CVE-2023-25157 exploit » : le produit vient de la même
+# reponse NVD que le CVSS, donc sans requete supplementaire.
+_cpe_ofbiz = {"configurations": [{"nodes": [{"cpeMatch": [
+    {"criteria": "cpe:2.3:a:apache:ofbiz:18.12.0:*:*:*:*:*:*:*"}]}]}]}
+assert v.extract_product(_cpe_ofbiz) == "apache ofbiz", v.extract_product(_cpe_ofbiz)
+assert v.extract_product({}) is None
+assert v.extract_product({"configurations": [{"nodes": [{"cpeMatch": [
+    {"criteria": "cpe:2.3:a:*:*:*:*:*:*:*:*:*:*"}]}]}]}) is None
+_art_prod = v.Article(source="S", title="CVE-2023-25157 exploit", link="https://n/p",
+                      date=datetime.now(timezone.utc), category=v.ALERTS, product="apache ofbiz")
+assert "apache ofbiz" in v._metrics(_art_prod), v._metrics(_art_prod)
+print("Product extraction: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True
@@ -1057,7 +1072,7 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_metasploit_cves=lambda *a, **k: ([], None),
             fetch_mirage_stats=lambda *a, **k: {},
             collect_source=lambda source, since, seen: ([], None),
-            enrich=lambda session, groups, cache: {},
+            enrich=lambda session, groups, cache, *a, **k: {},
             open_db=lambda: None,
             load_cvss_cache=lambda conn: {},
             send_email=capture_alerte,

@@ -148,6 +148,10 @@ SHOW_COUNTRY_LINKS = _env_bool("SHOW_COUNTRY_LINKS", True, "AFFICHER_LIENS_PAYS"
 # et à la synchronisation de la base.
 KEV_VULNS: list[dict] = []
 
+# Résultat de chaque source au run courant : (succès, erreur, nombre d'articles). Rempli par
+# collect_source() dans les fils, puis écrit en base une fois la collecte terminée.
+SOURCE_RESULTS: dict[str, tuple[bool, str | None, int]] = {}
+
 # Enrichissement (tout est optionnel : sans clé ou en cas d'erreur, le rapport part quand même)
 EPSS_URL = "https://api.first.org/data/v1/epss"
 EPSS_CSV_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
@@ -1224,6 +1228,12 @@ def open_db() -> sqlite3.Connection | None:
             CREATE TABLE IF NOT EXISTS meta (
                 cle TEXT PRIMARY KEY, valeur TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS sources (
+                nom TEXT PRIMARY KEY, url TEXT, categorie TEXT, poids INTEGER,
+                dernier_ok TEXT, dernier_article TEXT,
+                erreurs_consecutives INTEGER DEFAULT 0,
+                type_erreur TEXT, derniere_erreur TEXT, total_articles INTEGER DEFAULT 0
+            );
             """
         )
         # Migration : les bases créées par les anciennes versions n'ont pas la colonne « ransomware »
@@ -1258,6 +1268,124 @@ def meta_set(conn: sqlite3.Connection | None, cle: str, valeur: str) -> None:
         conn.commit()
     except sqlite3.Error as exc:
         log.warning("Could not store %s: %s", cle, exc)
+
+
+def record_source_results(conn: sqlite3.Connection | None,
+                          resultats: dict[str, tuple[bool, str | None, int]]) -> None:
+    """Met à jour l'état de chaque source : une ligne par source, écrasée à chaque run.
+
+    `resultats` associe le nom de la source à (succès, message d'erreur, nombre d'articles).
+    On ne garde pas d'historique : seul l'état courant et le compteur d'échecs consécutifs
+    comptent, et le statut s'en déduit à la lecture.
+    """
+    if conn is None or not resultats:
+        return
+    maintenant = datetime.now(timezone.utc).isoformat()
+    try:
+        for nom, (ok, erreur, nb) in resultats.items():
+            source = next((s for s in RSS_SOURCES if s["name"] == nom), None)
+            url = source["url"] if source else ""
+            categorie = source["category"] if source else ""
+            poids = SOURCE_WEIGHTS.get(nom, 0)
+            ligne = conn.execute("SELECT erreurs_consecutives, total_articles, dernier_ok, "
+                                 "dernier_article FROM sources WHERE nom = ?", (nom,)).fetchone()
+            echecs, total, dernier_ok, dernier_article = ligne or (0, 0, None, None)
+            if ok:
+                conn.execute(
+                    "INSERT INTO sources (nom, url, categorie, poids, dernier_ok, dernier_article,"
+                    " erreurs_consecutives, type_erreur, derniere_erreur, total_articles)"
+                    " VALUES (?,?,?,?,?,?,0,NULL,NULL,?)"
+                    " ON CONFLICT(nom) DO UPDATE SET url=excluded.url,"
+                    " categorie=excluded.categorie, poids=excluded.poids,"
+                    " dernier_ok=excluded.dernier_ok, erreurs_consecutives=0,"
+                    " type_erreur=NULL, derniere_erreur=NULL, total_articles=excluded.total_articles",
+                    (nom, url, categorie, poids, maintenant,
+                     maintenant if nb else dernier_article, total + nb))
+            else:
+                conn.execute(
+                    "INSERT INTO sources (nom, url, categorie, poids, dernier_ok, dernier_article,"
+                    " erreurs_consecutives, type_erreur, derniere_erreur, total_articles)"
+                    " VALUES (?,?,?,?,?,?,1,?,?,?)"
+                    " ON CONFLICT(nom) DO UPDATE SET url=excluded.url,"
+                    " categorie=excluded.categorie, poids=excluded.poids,"
+                    " erreurs_consecutives = sources.erreurs_consecutives + 1,"
+                    " type_erreur=excluded.type_erreur, derniere_erreur=excluded.derniere_erreur",
+                    (nom, url, categorie, poids, dernier_ok, dernier_article,
+                     _error_kind(erreur), (erreur or "")[:300], total))
+        conn.commit()
+    except sqlite3.Error as exc:
+        log.warning("Could not store source state: %s", exc)
+
+
+def _error_kind(erreur: str | None) -> str:
+    """Classe un message d'erreur pour que la lecture n'ait pas à le réanalyser."""
+    texte = (erreur or "").lower()
+    if "301" in texte or "302" in texte:
+        return "deplace"
+    if "403" in texte or "429" in texte:
+        return "bloque"
+    if "404" in texte or "410" in texte:
+        return "disparu"
+    if "timeout" in texte or "timed out" in texte:
+        return "timeout"
+    if "vide" in texte or "empty" in texte:
+        return "vide"
+    return "autre"
+
+
+def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[dict]:
+    """État déduit de chaque source : jamais stocké, donc jamais périmé.
+
+    Le silence se juge par rapport au rythme propre de la source : une publication mensuelle
+    n'est pas « muette » après vingt jours, alors qu'une source quotidienne l'est après trois.
+    """
+    if conn is None:
+        return []
+    try:
+        lignes = list(conn.execute(
+            "SELECT nom, url, dernier_ok, dernier_article, erreurs_consecutives,"
+            " type_erreur, derniere_erreur, total_articles FROM sources"))
+        cadences = {}
+        for source, dates in conn.execute(
+                "SELECT source, GROUP_CONCAT(DISTINCT substr(vu_le,1,10)) FROM articles"
+                " GROUP BY source"):
+            jours = sorted({d for d in (dates or "").split(",") if d})
+            if len(jours) >= 3:
+                ecarts = [(datetime.fromisoformat(b).date() - datetime.fromisoformat(a).date()).days
+                          for a, b in zip(jours, jours[1:])]
+                ecarts = [e for e in ecarts if e > 0]
+                if ecarts:
+                    cadences[source] = sorted(ecarts)[len(ecarts) // 2]
+    except sqlite3.Error:
+        return []
+
+    etats = []
+    for nom, url, dernier_ok, dernier_article, echecs, type_erreur, erreur, total in lignes:
+        cadence = cadences.get(nom, 1)
+        seuil = max(7, cadence * 3)
+        age_article = None
+        if dernier_article:
+            try:
+                age_article = (today.date() - datetime.fromisoformat(dernier_article[:19]).date()).days
+            except ValueError:
+                age_article = None
+        if echecs >= 3:
+            statut = "dead"
+        elif echecs >= 1 and type_erreur in ("bloque", "deplace", "disparu"):
+            statut = "blocked" if type_erreur == "bloque" else "moved"
+        elif echecs >= 1:
+            statut = "flaky"
+        elif age_article is not None and age_article >= seuil:
+            statut = "quiet"
+        else:
+            statut = "active"
+        etats.append({
+            "nom": nom, "url": url, "statut": statut, "echecs": echecs,
+            "type_erreur": type_erreur, "erreur": erreur, "total": total,
+            "age_article": age_article, "cadence": cadence,
+        })
+    ordre = {"dead": 0, "moved": 1, "blocked": 2, "flaky": 3, "quiet": 4, "active": 5}
+    return sorted(etats, key=lambda e: (ordre.get(e["statut"], 9), -(e["echecs"] or 0), e["nom"]))
 
 
 def load_cvss_cache(conn: sqlite3.Connection | None) -> dict[str, float]:
@@ -1558,10 +1686,14 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
 def collect_source(source: dict, since: datetime, seen: set[str]) -> tuple[list[Article], str | None]:
     """Frontière de fiabilité : aucune exception inattendue ne sort d'une source."""
     try:
-        return collect_rss(thread_session(), source, since, seen)
+        articles, erreur = collect_rss(thread_session(), source, since, seen)
     except Exception as exc:  # noqa: BLE001
         log.exception("Source %s: unexpected failure", source["name"])
-        return [], f"{source['name']}: unexpected error ({type(exc).__name__})"
+        articles, erreur = [], f"{source['name']}: unexpected error ({type(exc).__name__})"
+    # Mémorisé ici car c'est le seul endroit qui connaît le nom de la source et son résultat.
+    # L'écriture SQLite se fait plus tard, hors des fils d'exécution.
+    SOURCE_RESULTS[source["name"]] = (erreur is None, erreur, len(articles))
+    return articles, erreur
 
 
 def check_feeds(session: requests.Session | None = None) -> int:
@@ -1592,6 +1724,17 @@ def check_feeds(session: requests.Session | None = None) -> int:
             problems.append(source["name"])
             print(f"KO   {source['name']:<32} {exc}")
     print(f"\n{ok}/{len(RSS_SOURCES)} feeds OK; problems: {', '.join(problems) or 'none'}")
+    # L'état enregistré par les runs précédents : un test isolé ne dit rien de la durée d'une panne.
+    conn = open_db()
+    etats = source_statuses(conn, datetime.now(timezone.utc))
+    if conn is not None:
+        conn.close()
+    en_panne = [e for e in etats if e["statut"] in ("dead", "moved", "blocked", "quiet")]
+    if en_panne:
+        print("\nÉtat enregistré par les runs précédents :")
+        for e in en_panne[:20]:
+            duree = f", muet depuis {e['age_article']} j" if e["age_article"] is not None else ""
+            print(f"  {e['statut']:<9} {e['nom']:<32} {e['echecs']} échec(s){duree}")
     return 0 if not problems else 1
 
 
@@ -2730,7 +2873,8 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
                 *, max_articles: int | None = None,
                 silent: list[tuple[str, int]] | None = None,
-                fresh: set[str] | None = None) -> str:
+                fresh: set[str] | None = None,
+                source_states: list[dict] | None = None) -> str:
     e = html.escape
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
@@ -2784,6 +2928,18 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             '<p style="background:#fff3cd;padding:8px;border-radius:4px">🔇 Silent sources '
             '(no article for 14+ days, feed still answering): '
             + e(", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
+            + "</p>"
+        )
+    if source_states:
+        # État durable : ces sources échouent run après run, ce n'est plus un incident isolé.
+        etiquettes = {"dead": "dead", "moved": "moved", "blocked": "blocked"}
+        parts.append(
+            '<p style="background:#f8d7da;padding:8px;border-radius:4px">🚫 Broken sources '
+            '(consecutive failures, not a one-off): '
+            + e(", ".join(
+                f"{s['nom']} ({etiquettes.get(s['statut'], s['statut'])}, "
+                f"{s['echecs']} run{'s' if s['echecs'] > 1 else ''})"
+                for s in source_states[:10]))
             + "</p>"
         )
 
@@ -2945,7 +3101,8 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
                 *, max_articles: int | None = None,
                 silent: list[tuple[str, int]] | None = None,
-                fresh: set[str] | None = None) -> str:
+                fresh: set[str] | None = None,
+                source_states: list[dict] | None = None) -> str:
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
     # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
@@ -2975,6 +3132,11 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
     if silent:
         lines.append("Silent sources (no article for 14+ days, feed still answering): "
                      + ", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
+    if source_states:
+        lines.append("Broken sources (consecutive failures, not a one-off): "
+                     + ", ".join(f"{s['nom']} ({s['statut']}, {s['echecs']} run"
+                                 f"{'s' if s['echecs'] > 1 else ''})"
+                                 for s in source_states[:10]))
     top = top_priorities(displayed)
     if top:
         lines.append("\n##### TOP PRIORITIES TODAY #####")
@@ -3267,10 +3429,19 @@ def main() -> int:
         silent = silent_sources(conn, now)
         if silent:
             log.info("Silent sources: %s", ", ".join(f"{n} ({a}d)" for n, a in silent[:6]))
+        # État durable des sources : on écrit d'abord, puis on lit pour le bandeau.
+        record_source_results(conn, SOURCE_RESULTS)
+        etats_sources = source_statuses(conn, now)
+        en_panne = [e for e in etats_sources if e["statut"] in ("dead", "moved", "blocked")]
+        if en_panne:
+            log.info("Sources en panne : %s", ", ".join(
+                f"{e['nom']} ({e['statut']}, {e['echecs']})" for e in en_panne[:6]))
         html_report = render_html(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit, silent=silent, fresh=fresh)
+                                  max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne)
         text_report = render_text(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit, silent=silent, fresh=fresh)
+                                  max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne)
         html_size = len(html_report.encode("utf-8"))
         text_size = len(text_report.encode("utf-8"))
         # Si le message reste trop lourd, réduire par petits paliers (-10 %) plutôt que de moitié :
@@ -3281,9 +3452,11 @@ def main() -> int:
             log.warning("Report of %d KB: reducing to %d items",
                         (html_size + text_size) // 1000, email_limit)
             html_report = render_html(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit, silent=silent, fresh=fresh)
+                                      max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne)
             text_report = render_text(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit, silent=silent, fresh=fresh)
+                                      max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne)
             html_size = len(html_report.encode("utf-8"))
             text_size = len(text_report.encode("utf-8"))
         log.info("Report size: %.1f KB HTML + %.1f KB text (%d items max)",
@@ -3505,6 +3678,12 @@ def main_alert() -> int:
     errors = [err for _, err in results if err]
     groups, _ = group_articles(results)
     enrich_with_mirage(groups, fetch_mirage_stats(session))
+    # L'alerte tourne aussi toutes les trois heures : ses passages alimentent l'état des sources,
+    # ce qui rend le compteur d'échecs consécutifs bien plus réactif que le seul run quotidien.
+    _conn_etat = open_db()
+    record_source_results(_conn_etat, SOURCE_RESULTS)
+    if _conn_etat is not None:
+        _conn_etat.close()
     # Le rapport quotidien enregistre ; ici on ne fait que lire le cache CVSS.
     candidates = preselect(groups, known)
     if candidates:

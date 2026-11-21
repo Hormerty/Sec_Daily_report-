@@ -763,6 +763,35 @@ assert v.enrich_with_mirage(_groupes_m, {}) == 0
 print("Mirage enrichment: OK")
 
 
+# --- État des sources : mémoire des pannes ------------------------------------
+# Le statut se déduit des échecs consécutifs, il n'est jamais stocké : une source qui repart
+# doit repasser en « active » d'elle-même.
+with tempfile.TemporaryDirectory() as _d_src:
+    _ancienne_db_src = v.DB_FILE
+    v.DB_FILE = str(Path(_d_src) / "sources.db")
+    _conn_src = v.open_db()
+    try:
+        _now_src = datetime.now(timezone.utc)
+        v.record_source_results(_conn_src, {"Saine": (True, None, 4)})
+        for _ in range(3):
+            v.record_source_results(_conn_src, {"Morte": (False, "404 Client Error", 0)})
+        v.record_source_results(_conn_src, {"Deplacee": (False, "301 Moved Permanently", 0)})
+        v.record_source_results(_conn_src, {"Bloquee": (False, "403 Client Error", 0)})
+        _etats_src = {e["nom"]: e for e in v.source_statuses(_conn_src, _now_src)}
+        assert _etats_src["Saine"]["statut"] == "active", _etats_src["Saine"]
+        assert _etats_src["Morte"]["statut"] == "dead", _etats_src["Morte"]
+        assert _etats_src["Deplacee"]["statut"] == "moved", _etats_src["Deplacee"]
+        assert _etats_src["Bloquee"]["statut"] == "blocked", _etats_src["Bloquee"]
+        v.record_source_results(_conn_src, {"Morte": (True, None, 1)})
+        _apres = {e["nom"]: e for e in v.source_statuses(_conn_src, _now_src)}
+        assert _apres["Morte"]["statut"] == "active", _apres["Morte"]
+        assert _apres["Morte"]["echecs"] == 0, _apres["Morte"]
+    finally:
+        _conn_src.close()
+        v.DB_FILE = _ancienne_db_src
+print("Source state: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

@@ -2337,7 +2337,10 @@ def collect_nvd_vendors(session: requests.Session, since: datetime):
                 link=f"https://nvd.nist.gov/vuln/detail/{ident}",
                 date=date,
                 category=ALERTS,
-                detail=f"Éditeur interrogé : {editeur}",
+                # « Éditeur interrogé » laissait croire que la CVE appartenait à cet éditeur :
+                # la recherche NVD par mot-clé est floue, seuls les CPE vérifiés le prouvent.
+                detail=(f"NVD search: {editeur} · product: {produit_cpe}"
+                        if produit_cpe else f"NVD search: {editeur} (product not yet analysed)"),
                 score=score,
                 severity=severity_badge(score),
                 cves=(ident,),

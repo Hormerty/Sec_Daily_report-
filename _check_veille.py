@@ -1041,6 +1041,49 @@ assert "4 sources" in v._metrics(_art_vieux_couvert), v._metrics(_art_vieux_couv
 print("Cross-source coverage: OK")
 
 
+# --- Page HTML servie à la place d'un flux ------------------------------------
+# feedparser ne marque pas toujours bozo sur du HTML : sans repli la source se vidait en
+# silence, et sans le contrôle de version elle n'était pas signalée en erreur.
+class _FluxSimule:
+    def __init__(self, bozo=False, version=""):
+        self.entries = []
+        self.bozo = bozo
+        self._version = version
+
+    def get(self, cle, defaut=None):
+        return self._version if cle == "version" else defaut
+
+
+class _RepSimule:
+    url = "https://x/feed"
+    content = b""
+
+    def raise_for_status(self):
+        pass
+
+
+class _SessSimule:
+    def get(self, url, timeout=None, headers=None):
+        return _RepSimule()
+
+
+_src_simule = {"name": "Simule", "url": "https://x/feed", "category": v.INTEL}
+_since_simule = datetime(2026, 11, 20, tzinfo=timezone.utc)
+_parse_initial = v.feedparser.parse
+try:
+    # page HTML : pas de version déclarée → doit être signalée
+    v.feedparser.parse = lambda contenu: _FluxSimule(bozo=False, version="")
+    _arts_html, _err_html = v.collect_rss(_SessSimule(), _src_simule, _since_simule, set())
+    assert _arts_html == [] and _err_html and "unreadable feed" in _err_html, _err_html
+    # flux réellement vide : version déclarée → aucune erreur
+    v.feedparser.parse = lambda contenu: _FluxSimule(bozo=False, version="rss20")
+    _arts_vide, _err_vide = v.collect_rss(_SessSimule(), _src_simule, _since_simule, set())
+    assert _arts_vide == [] and _err_vide is None, _err_vide
+finally:
+    v.feedparser.parse = _parse_initial
+print("HTML instead of feed: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

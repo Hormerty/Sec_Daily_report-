@@ -1678,14 +1678,22 @@ def analyse_badges(text: str, countries: tuple[str, ...] = ()) -> str:
     return " ".join(badges)
 
 
-def fetch_feed(session: requests.Session, url: str):
+def fetch_feed(session: requests.Session, url: str, reader_only: bool = False):
     """Récupère un flux, avec une seconde tentative sous un agent de lecteur.
 
     L'en-tête Accept reste local à cet appel pour ne pas modifier les réponses JSON (NVD, KEV,
     GitHub). Certains sites refusent un client qui se déclare navigateur sans en être un : ils
     répondent 403 ou coupent la connexion, mais acceptent un agent honnête. C'est la seule
     différence qui débloque Schneier, NVISO et Hackmageddon.
+
+    `reader_only` saute la première tentative : utile quand elle a déjà rendu du HTML au lieu
+    d'un flux, cas où aucune exception n'est levée et où le repli ne se déclencherait pas.
     """
+    if reader_only:
+        response = session.get(url, timeout=TIMEOUT,
+                               headers={"Accept": _FEED_ACCEPT, "User-Agent": FEED_READER_UA})
+        response.raise_for_status()
+        return response
     try:
         response = session.get(url, timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
         response.raise_for_status()
@@ -1826,12 +1834,24 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
         log.warning("%s: unreadable feed (%s)", source["name"], exc)
         return [], f"{source['name']}: unreadable feed ({type(exc).__name__})"
 
-    if feed.bozo and not feed.entries:
-        # Sans ce message, une reponse anti-bot (200 mais pas du XML) faisait disparaitre la
-        # source du journal sans laisser aucune trace : panne invisible.
-        log.warning("%s: unreadable feed (no entries, bozo=%s)",
-                    source["name"], feed.get("bozo_exception"))
-        return [], f"{source['name']}: unreadable feed"
+    if not feed.entries:
+        # Aucune entrée : soit une page anti-robot servie au client qui se dit navigateur, soit
+        # un flux réellement vide. feedparser ne marque pas toujours `bozo` sur du HTML, donc on
+        # retente avec l'agent de lecteur dès qu'il n'y a rien, avant de conclure.
+        try:
+            seconde = fetch_feed(session, source["url"], reader_only=True)
+            feed_lecteur = feedparser.parse(seconde.content)
+        except Exception:  # noqa: BLE001 - un repli qui échoue ne doit pas tuer la source
+            feed_lecteur = None
+        if feed_lecteur is not None and feed_lecteur.entries:
+            log.info("%s: flux lisible avec l'agent de lecteur", source["name"])
+            feed = feed_lecteur
+        elif feed.bozo or not feed.get("version"):
+            # Pas de `version` = le contenu n'était pas un flux du tout (page HTML). Un flux
+            # réellement vide, lui, déclare sa version : il ne doit pas être signalé en erreur.
+            log.warning("%s: unreadable feed (no entries, bozo=%s, version=%r)",
+                        source["name"], feed.bozo, feed.get("version"))
+            return [], f"{source['name']}: unreadable feed"
 
     articles = []
     filtered = source.get("filter", False)

@@ -512,6 +512,9 @@ KEYWORDS_TARGETS = [
     "ibm websphere", "ibm maximo", "aspera", "qradar", "node.js", "nodejs",
     # Renseignement de menace IBM ; « xforce » couvre la graphie sans tiret.
     "x-force", "xforce",
+    # Compromission de la chaîne CI : « supply chain » seul ne suffisait pas à faire remonter
+    # l'affaire wfx, qui plafonnait à 3 points pour un seuil d'affichage de 5.
+    "supply chain", "github actions",
     # Matériel et fournisseurs locaux
     "amag", "symmetry", "securitas", "genetec", "voo", "ores",
     "anker", "solix", "tp-link", "tplink",

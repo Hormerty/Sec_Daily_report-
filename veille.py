@@ -151,6 +151,8 @@ KEV_VULNS: list[dict] = []
 # Résultat de chaque source au run courant : (succès, erreur, nombre d'articles). Rempli par
 # collect_source() dans les fils, puis écrit en base une fois la collecte terminée.
 SOURCE_RESULTS: dict[str, tuple[bool, str | None, int]] = {}
+# Sources qui répondent depuis une autre adresse que celle configurée : nom -> URL finale.
+SOURCE_MOVED: dict[str, str] = {}
 
 # Enrichissement (tout est optionnel : sans clé ou en cas d'erreur, le rapport part quand même)
 EPSS_URL = "https://api.first.org/data/v1/epss"
@@ -1290,17 +1292,21 @@ def record_source_results(conn: sqlite3.Connection | None,
             ligne = conn.execute("SELECT erreurs_consecutives, total_articles, dernier_ok, "
                                  "dernier_article FROM sources WHERE nom = ?", (nom,)).fetchone()
             echecs, total, dernier_ok, dernier_article = ligne or (0, 0, None, None)
+            deplace = SOURCE_MOVED.get(nom)
             if ok:
                 conn.execute(
                     "INSERT INTO sources (nom, url, categorie, poids, dernier_ok, dernier_article,"
                     " erreurs_consecutives, type_erreur, derniere_erreur, total_articles)"
-                    " VALUES (?,?,?,?,?,?,0,NULL,NULL,?)"
+                    " VALUES (?,?,?,?,?,?,0,?,?,?)"
                     " ON CONFLICT(nom) DO UPDATE SET url=excluded.url,"
                     " categorie=excluded.categorie, poids=excluded.poids,"
                     " dernier_ok=excluded.dernier_ok, erreurs_consecutives=0,"
-                    " type_erreur=NULL, derniere_erreur=NULL, total_articles=excluded.total_articles",
+                    " type_erreur=excluded.type_erreur, derniere_erreur=excluded.derniere_erreur,"
+                    " total_articles=excluded.total_articles",
                     (nom, url, categorie, poids, maintenant,
-                     maintenant if nb else dernier_article, total + nb))
+                     maintenant if nb else dernier_article,
+                     "deplace" if deplace else None,
+                     f"moved to {deplace}" if deplace else None, total + nb))
             else:
                 conn.execute(
                     "INSERT INTO sources (nom, url, categorie, poids, dernier_ok, dernier_article,"
@@ -1369,10 +1375,13 @@ def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[di
                 age_article = (today.date() - datetime.fromisoformat(dernier_article[:19]).date()).days
             except ValueError:
                 age_article = None
-        if echecs >= 3:
+        # Un déplacement passe avant tout : le correctif est connu et tient en une ligne d'URL.
+        if type_erreur == "deplace":
+            statut = "moved"
+        elif echecs >= 3:
             statut = "dead"
-        elif echecs >= 1 and type_erreur in ("bloque", "deplace", "disparu"):
-            statut = "blocked" if type_erreur == "bloque" else "moved"
+        elif echecs >= 1 and type_erreur == "bloque":
+            statut = "blocked"
         elif echecs >= 1:
             statut = "flaky"
         elif age_article is not None and age_article >= seuil:
@@ -1386,6 +1395,19 @@ def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[di
         })
     ordre = {"dead": 0, "moved": 1, "blocked": 2, "flaky": 3, "quiet": 4, "active": 5}
     return sorted(etats, key=lambda e: (ordre.get(e["statut"], 9), -(e["echecs"] or 0), e["nom"]))
+
+
+def source_label(etat: dict) -> str:
+    """Libellé court d'une source en panne, pour le bandeau.
+
+    Un déplacement affiche la nouvelle adresse : c'est le correctif, autant le donner tel quel.
+    """
+    nom = etat.get("nom", "?")
+    if etat.get("statut") == "moved":
+        cible = (etat.get("erreur") or "").replace("moved to ", "").strip()
+        return f"{nom} → {cible}" if cible else f"{nom} (moved)"
+    echecs = etat.get("echecs") or 0
+    return f"{nom} ({etat.get('statut')}, {echecs} run{'s' if echecs > 1 else ''})"
 
 
 def load_cvss_cache(conn: sqlite3.Connection | None) -> dict[str, float]:
@@ -1598,6 +1620,26 @@ def fetch_feed(session: requests.Session, url: str):
             raise exc
 
 
+def _redirect_target(source: dict, response) -> str | None:
+    """URL finale si le flux a changé d'adresse, None sinon.
+
+    requests suit les redirections sans rien dire : un flux qui déménage se contente de
+    répondre depuis sa nouvelle adresse et personne ne s'en aperçoit. On compare donc le
+    domaine et le chemin effectifs à ceux demandés.
+    """
+    origine = source.get("url") or ""
+    finale = getattr(response, "url", "") or ""
+    if not finale or finale == origine:
+        return None
+    demande, obtenu = urlsplit(origine), urlsplit(finale)
+    domaine = lambda u: u.netloc.lower().removeprefix("www.")
+    if domaine(demande) != domaine(obtenu):
+        return finale
+    if demande.path.rstrip("/") != obtenu.path.rstrip("/"):
+        return finale
+    return None
+
+
 def collect_rss(session: requests.Session, source: dict, since: datetime,
                 seen: set[str]) -> tuple[list[Article], str | None]:
     """Retourne (articles, erreur_ou_None)."""
@@ -1606,6 +1648,11 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
     except requests.RequestException as exc:
         log.warning("%s: %s", source["name"], exc)
         return [], f"{source['name']}: {exc}"
+
+    deplace = _redirect_target(source, response)
+    if deplace:
+        SOURCE_MOVED[source["name"]] = deplace
+        log.warning("%s: flux déplacé vers %s", source["name"], deplace)
 
     try:
         feed = feedparser.parse(response.content)
@@ -2932,14 +2979,10 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         )
     if source_states:
         # État durable : ces sources échouent run après run, ce n'est plus un incident isolé.
-        etiquettes = {"dead": "dead", "moved": "moved", "blocked": "blocked"}
         parts.append(
             '<p style="background:#f8d7da;padding:8px;border-radius:4px">🚫 Broken sources '
             '(consecutive failures, not a one-off): '
-            + e(", ".join(
-                f"{s['nom']} ({etiquettes.get(s['statut'], s['statut'])}, "
-                f"{s['echecs']} run{'s' if s['echecs'] > 1 else ''})"
-                for s in source_states[:10]))
+            + e(", ".join(source_label(s) for s in source_states[:10]))
             + "</p>"
         )
 
@@ -3134,9 +3177,7 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                      + ", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
     if source_states:
         lines.append("Broken sources (consecutive failures, not a one-off): "
-                     + ", ".join(f"{s['nom']} ({s['statut']}, {s['echecs']} run"
-                                 f"{'s' if s['echecs'] > 1 else ''})"
-                                 for s in source_states[:10]))
+                     + ", ".join(source_label(s) for s in source_states[:10]))
     top = top_priorities(displayed)
     if top:
         lines.append("\n##### TOP PRIORITIES TODAY #####")

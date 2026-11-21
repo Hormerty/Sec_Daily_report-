@@ -792,6 +792,26 @@ with tempfile.TemporaryDirectory() as _d_src:
 print("Source state: OK")
 
 
+# --- Détection des flux déplacés ----------------------------------------------
+# requests suit les redirections sans rien dire : un flux qui déménage répond normalement
+# depuis sa nouvelle adresse, et personne ne s'en aperçoit.
+class _RepRedir:
+    def __init__(self, url):
+        self.url = url
+
+
+_src_redir = {"name": "T", "url": "https://blog.exemple.fr/feed/"}
+assert v._redirect_target(_src_redir, _RepRedir("https://blog.exemple.fr/feed/")) is None
+assert v._redirect_target(_src_redir, _RepRedir("https://blog.exemple.fr/feed")) is None       # barre oblique
+assert v._redirect_target(_src_redir, _RepRedir("https://www.blog.exemple.fr/feed/")) is None  # www
+_cible_redir = v._redirect_target(_src_redir, _RepRedir("https://www.exemple.com/rss.xml"))
+assert _cible_redir == "https://www.exemple.com/rss.xml", _cible_redir
+assert v._redirect_target(_src_redir, _RepRedir("https://blog.exemple.fr/rss.xml")) is not None
+assert v.source_label({"nom": "X", "statut": "moved", "echecs": 0,
+                       "erreur": "moved to https://n/1"}) == "X → https://n/1"
+print("Redirect detection: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

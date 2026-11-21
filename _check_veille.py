@@ -679,21 +679,27 @@ with tempfile.TemporaryDirectory() as _dossier:
     _ancienne_db = v.DB_FILE
     v.DB_FILE = str(Path(_dossier) / "silent.db")
     _conn = v.open_db()
+    # Deux vraies sources : le calcul ignore desormais les noms absents du code, pour ne pas
+    # signaler indefiniment une source retiree.
+    _nom_recent = v.RSS_SOURCES[0]["name"]
+    _nom_muet = v.RSS_SOURCES[1]["name"]
     try:
         _auj = datetime.now(timezone.utc)
         for lien, jour, source in (
-            ("https://s/1", _auj.date().isoformat(), "Fraiche"),
-            ("https://s/2", (_auj - timedelta(days=20)).date().isoformat(), "Muette"),
+            ("https://s/1", _auj.date().isoformat(), _nom_recent),
+            ("https://s/2", (_auj - timedelta(days=20)).date().isoformat(), _nom_muet),
+            ("https://s/3", (_auj - timedelta(days=20)).date().isoformat(), "Source Disparue"),
         ):
             _conn.execute(
                 "INSERT INTO articles (lien, vu_le, source, categorie, titre) VALUES (?,?,?,?,?)",
                 (lien, jour, source, "News", "t"))
         _conn.commit()
         _muettes = v.silent_sources(_conn, _auj)
-        assert ("Muette", 20) in _muettes, _muettes
-        assert all(nom != "Fraiche" for nom, _ in _muettes), _muettes
+        assert (_nom_muet, 20) in _muettes, _muettes
+        assert all(nom != _nom_recent for nom, _ in _muettes), _muettes
+        assert all(nom != "Source Disparue" for nom, _ in _muettes), _muettes
         _html = v.render_html({}, [], None, [], [], max_articles=10, silent=_muettes)
-        assert "Silent sources" in _html and "Muette" in _html
+        assert "Silent sources" in _html and _nom_muet in _html
     finally:
         _conn.close()
         v.DB_FILE = _ancienne_db
@@ -877,6 +883,36 @@ _html_rech = v.render_html({"S": [_art_rech]}, [], None, [], [], source_states=_
 assert _html_rech.count("search</a>") == 1, _html_rech.count("search</a>")
 assert "https://x/rss" in _html_rech
 print("Search link: OK")
+
+
+# --- Un flux déplacé n'est pas un flux cassé ----------------------------------
+# Il répond parfaitement, depuis une autre adresse : le ranger avec les pannes fait croire
+# à dix incidents là où il n'y a que dix déménagements.
+_casses_b = [{"nom": "Morte", "statut": "dead", "echecs": 4, "candidat": None}]
+_deplaces_b = [{"nom": "Bougee", "statut": "moved", "echecs": 0,
+                "erreur": "moved to https://x/rss"}]
+_html_b = v.render_html({"S": [_art_rech]}, [], None, [], [],
+                        source_states=_casses_b, moved_states=_deplaces_b)
+assert "Moved feeds" in _html_b, _html_b[:200]
+_bloc_casse = _html_b.split("Broken sources")[1].split("</p>")[0]
+assert "Bougee" not in _bloc_casse, _bloc_casse
+assert "https://x/rss" in _html_b
+
+# Une source retirée du code ne doit pas rester dans la table.
+with tempfile.TemporaryDirectory() as _d_purge:
+    _ancienne_db_purge = v.DB_FILE
+    v.DB_FILE = str(Path(_d_purge) / "purge.db")
+    _conn_purge = v.open_db()
+    try:
+        _conn_purge.execute("INSERT INTO sources (nom) VALUES ('Source Disparue')")
+        _conn_purge.commit()
+        assert v.prune_orphan_sources(_conn_purge) == 1
+        _noms_restants = {r[0] for r in _conn_purge.execute("SELECT nom FROM sources")}
+        assert "Source Disparue" not in _noms_restants, _noms_restants
+    finally:
+        _conn_purge.close()
+        v.DB_FILE = _ancienne_db_purge
+print("Moved vs broken: OK")
 
 
 # --- Fonctions pures : negation, traduction, regroupement ----------------------

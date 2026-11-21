@@ -1329,6 +1329,28 @@ def record_source_results(conn: sqlite3.Connection | None,
         log.warning("Could not store source state: %s", exc)
 
 
+def prune_orphan_sources(conn: sqlite3.Connection | None) -> int:
+    """Supprime les lignes des sources qui ne sont plus dans le code.
+
+    Sans ça, une source renommée ou retirée garde sa ligne et continue d'apparaître dans le
+    bandeau des mois après sa disparition — c'est ce qui est arrivé à « CERT-FR alertes ».
+    """
+    if conn is None:
+        return 0
+    connues = tuple(s["name"] for s in RSS_SOURCES)
+    if not connues:
+        return 0
+    try:
+        avant = conn.execute("SELECT count(*) FROM sources").fetchone()[0]
+        conn.execute("DELETE FROM sources WHERE nom NOT IN (%s)" % ",".join("?" * len(connues)),
+                     connues)
+        conn.commit()
+        return max(0, avant - conn.execute("SELECT count(*) FROM sources").fetchone()[0])
+    except sqlite3.Error as exc:
+        log.warning("Could not prune orphan sources: %s", exc)
+        return 0
+
+
 def _error_kind(erreur: str | None) -> str:
     """Classe un message d'erreur pour que la lecture n'ait pas à le réanalyser."""
     texte = (erreur or "").lower()
@@ -2942,9 +2964,12 @@ def silent_sources(conn: sqlite3.Connection | None, today: datetime,
         rows = list(conn.execute("SELECT source, MAX(vu_le) FROM articles GROUP BY source"))
     except sqlite3.Error:
         return []
+    # Une source retirée du code garde ses articles en base : sans ce filtre, elle resterait
+    # signalée « muette » des mois après sa suppression.
+    connues = {s["name"] for s in RSS_SOURCES}
     muettes = []
     for source, dernier in rows:
-        if not source or not dernier:
+        if not source or not dernier or source not in connues:
             continue
         try:
             age = (today.date() - datetime.fromisoformat(str(dernier)[:10]).date()).days
@@ -3000,7 +3025,8 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
                 *, max_articles: int | None = None,
                 silent: list[tuple[str, int]] | None = None,
                 fresh: set[str] | None = None,
-                source_states: list[dict] | None = None) -> str:
+                source_states: list[dict] | None = None,
+                moved_states: list[dict] | None = None) -> str:
     e = html.escape
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
@@ -3072,6 +3098,14 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             '<p style="background:#f8d7da;padding:8px;border-radius:4px">🚫 Broken sources '
             '(consecutive failures, not a one-off): '
             + ", ".join(morceaux)
+            + "</p>"
+        )
+    if moved_states:
+        # Ces flux répondent parfaitement, mais depuis une autre adresse : rien de cassé.
+        parts.append(
+            '<p style="background:#fff3cd;padding:8px;border-radius:4px">↪ Moved feeds '
+            '(still answering, from a new address): '
+            + e(", ".join(source_label(s) for s in moved_states[:10]))
             + "</p>"
         )
 
@@ -3234,7 +3268,8 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                 *, max_articles: int | None = None,
                 silent: list[tuple[str, int]] | None = None,
                 fresh: set[str] | None = None,
-                source_states: list[dict] | None = None) -> str:
+                source_states: list[dict] | None = None,
+                moved_states: list[dict] | None = None) -> str:
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
     # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
@@ -3273,6 +3308,9 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
             morceaux.append(libelle)
         lines.append("Broken sources (consecutive failures, not a one-off): "
                      + ", ".join(morceaux))
+    if moved_states:
+        lines.append("Moved feeds (still answering, from a new address): "
+                     + ", ".join(source_label(s) for s in moved_states[:10]))
     top = top_priorities(displayed)
     if top:
         lines.append("\n##### TOP PRIORITIES TODAY #####")
@@ -3567,6 +3605,8 @@ def main() -> int:
             log.info("Silent sources: %s", ", ".join(f"{n} ({a}d)" for n, a in silent[:6]))
         # État durable des sources : on écrit d'abord, puis on lit pour le bandeau.
         record_source_results(conn, SOURCE_RESULTS)
+        if prune_orphan_sources(conn):
+            log.info("Sources retirées du code : lignes d'état supprimées")
         etats_sources = source_statuses(conn, now)
         # Une source morte a peut-être seulement déménagé : on cherche son adresse actuelle,
         # au plus deux par run pour ne pas transformer le rapport en robot d'exploration.
@@ -3583,16 +3623,22 @@ def main() -> int:
                 except sqlite3.Error as exc:
                     log.warning("Could not store feed candidate: %s", exc)
             log.info("%s : nouvelle adresse trouvée %s", etat["nom"], trouve)
-        en_panne = [e for e in etats_sources if e["statut"] in ("dead", "moved", "blocked")]
+        # Un flux déplacé n'est pas cassé : il répond, simplement ailleurs. Deux lignes distinctes,
+        # sinon un simple changement d'adresse passe pour une panne.
+        mouvements = [e for e in etats_sources if e["statut"] == "moved"]
+        en_panne = [e for e in etats_sources if e["statut"] in ("dead", "blocked")]
         if en_panne:
             log.info("Sources en panne : %s", ", ".join(
                 f"{e['nom']} ({e['statut']}, {e['echecs']})" for e in en_panne[:6]))
+        if mouvements:
+            log.info("Flux déplacés : %s", ", ".join(
+                f"{e['nom']} → {e['candidat'] or e['erreur']}" for e in mouvements[:6]))
         html_report = render_html(groups, errors, stats, reminders, vendors,
                                   max_articles=email_limit, silent=silent, fresh=fresh,
-                                  source_states=en_panne)
+                                  source_states=en_panne, moved_states=mouvements)
         text_report = render_text(groups, errors, stats, reminders, vendors,
                                   max_articles=email_limit, silent=silent, fresh=fresh,
-                                  source_states=en_panne)
+                                  source_states=en_panne, moved_states=mouvements)
         html_size = len(html_report.encode("utf-8"))
         text_size = len(text_report.encode("utf-8"))
         # Si le message reste trop lourd, réduire par petits paliers (-10 %) plutôt que de moitié :
@@ -3604,10 +3650,10 @@ def main() -> int:
                         (html_size + text_size) // 1000, email_limit)
             html_report = render_html(groups, errors, stats, reminders, vendors,
                                       max_articles=email_limit, silent=silent, fresh=fresh,
-                                  source_states=en_panne)
+                                  source_states=en_panne, moved_states=mouvements)
             text_report = render_text(groups, errors, stats, reminders, vendors,
                                       max_articles=email_limit, silent=silent, fresh=fresh,
-                                  source_states=en_panne)
+                                  source_states=en_panne, moved_states=mouvements)
             html_size = len(html_report.encode("utf-8"))
             text_size = len(text_report.encode("utf-8"))
         log.info("Report size: %.1f KB HTML + %.1f KB text (%d items max)",

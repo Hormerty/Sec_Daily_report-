@@ -1830,7 +1830,14 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             continue  # refuse javascript:, data:, etc. : le lien finit dans un href du mail
         if not IGNORE_SEEN and link in seen:
             continue
-        title = (entry.get("title") or "Untitled item").strip()[:300]
+        titre = (entry.get("title") or "").strip()
+        if not titre:
+            # Mastodon n'expose aucun titre : sans ce repli, ses billets arrivent en
+            # « Untitled item », illisibles et pourtant comptés dans le volume.
+            texte = str(entry.get("summary") or entry.get("description") or "")
+            titre = re.sub(r"<[^>]+>", " ", html.unescape(texte))
+            titre = re.sub(r"\s+", " ", titre).strip()
+        title = (titre or "Untitled item")[:300]
         if source.get("translate"):
             title = translate_german(title)
         text = _entry_text(entry)
@@ -2273,6 +2280,11 @@ def collect_nvd_vendors(session: requests.Session, since: datetime):
             except (TypeError, ValueError):
                 continue
             if date < since:
+                continue
+            # La recherche NVD par mot-clé est floue : « oracle » ramenait un greffon WordPress
+            # citant Oracle dans sa description. Le CPE tranche.
+            produit_cpe = extract_product(cve)
+            if produit_cpe and editeur.split()[0] not in produit_cpe:
                 continue
             texte = f"{ident} {description}"
             score, _ = compute_criticality(texte)
@@ -3015,14 +3027,16 @@ def _cve_links_text(cve: str) -> str:
 
 
 def silent_sources(conn: sqlite3.Connection | None, today: datetime,
-                   days: int = 14) -> list[tuple[str, int]]:
+                   days: int = 14, exclure: set[str] | None = None) -> list[tuple[str, int]]:
     """Sources qui ont deja publie mais se taisent depuis `days` jours.
 
     Un flux peut repondre parfaitement et ne plus rien contenir : un PSIRT qui change d'URL, un
     blog qui s'arrete. Le bandeau d'erreurs ne les voit pas, puisque techniquement tout va bien.
 
     Seules les sources ayant au moins un article en base sont examinees : une source ajoutee
-    recemment serait signalee a tort.
+    recemment serait signalee a tort. `exclure` ecarte celles qui ont justement publie ou
+    echoue pendant ce run — la base n'est ecrite qu'apres le rendu, donc sans cela une source
+    qui vient de livrer cinq articles serait annoncee muette.
     """
     if conn is None:
         return []
@@ -3033,9 +3047,10 @@ def silent_sources(conn: sqlite3.Connection | None, today: datetime,
     # Une source retirée du code garde ses articles en base : sans ce filtre, elle resterait
     # signalée « muette » des mois après sa suppression.
     connues = {s["name"] for s in RSS_SOURCES}
+    exclues = exclure or set()
     muettes = []
     for source, dernier in rows:
-        if not source or not dernier or source not in connues:
+        if not source or not dernier or source not in connues or source in exclues:
             continue
         try:
             age = (today.date() - datetime.fromisoformat(str(dernier)[:10]).date()).days
@@ -3666,7 +3681,10 @@ def main() -> int:
 
         email_limit = MAX_EMAIL_ARTICLES
         # Un flux peut repondre et ne plus rien publier : invisible dans le bandeau d'erreurs.
-        silent = silent_sources(conn, now)
+        # On ecarte celles qui viennent de livrer ou d'echouer : la base n'est ecrite qu'apres.
+        actives_ou_en_erreur = {nom for nom, (ok, erreur, nb) in SOURCE_RESULTS.items()
+                               if erreur or nb}
+        silent = silent_sources(conn, now, exclure=actives_ou_en_erreur)
         if silent:
             log.info("Silent sources: %s", ", ".join(f"{n} ({a}d)" for n, a in silent[:6]))
         # État durable des sources : on écrit d'abord, puis on lit pour le bandeau.

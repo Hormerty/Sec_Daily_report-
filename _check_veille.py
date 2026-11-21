@@ -173,7 +173,7 @@ finally:
 assert erreur is None, erreur
 assert len(articles) == 1, len(articles)
 assert articles[0].link == "https://example.com/article/1", articles[0].link
-assert articles[0].title == "Untitled item", articles[0].title
+assert articles[0].title == "CVE-2024-1234 actively exploited in the wild", articles[0].title
 assert articles[0].score >= 8, articles[0].score
 assert "CVE-2024-1234" in articles[0].cves
 print("Fake RSS collection: OK")
@@ -940,6 +940,65 @@ assert _date_sans_fuseau.year == 2026 and _date_sans_fuseau.tzinfo is not None
 assert v._entry_date({"published_parsed": (2026, 11, 18, 14, 30, 33, 0, 0, 0)}).day == 18
 assert v._entry_date({"published": "n'importe quoi"}) is None
 print("Non-standard dates: OK")
+
+
+# --- Titre de repli pour les flux sans titre ----------------------------------
+# Mastodon n'expose pas de <title> : sans repli, ses billets arrivent en « Untitled item ».
+class _FluxSansTitre:
+    bozo = False
+    entries = [{"link": "https://masto/1",
+                "summary": "<p>Un billet Mastodon lisible</p>",
+                "published": "Sat, 21 Nov 2026 10:00:00"}]
+
+
+class _RepMasto:
+    content = b""
+    url = "https://mastodon.social/tags/infosec.rss"
+
+    def raise_for_status(self):
+        pass
+
+
+class _SessMasto:
+    def get(self, *a, **k):
+        return _RepMasto()
+
+
+_parse_masto = v.feedparser.parse
+v.feedparser.parse = lambda *a, **k: _FluxSansTitre()
+try:
+    _arts_masto, _ = v.collect_rss(
+        _SessMasto(),
+        {"name": "Mastodon (infosec)", "url": "https://mastodon.social/tags/infosec.rss",
+         "category": v.BLOGS},
+        datetime(2026, 11, 20, tzinfo=timezone.utc), set())
+finally:
+    v.feedparser.parse = _parse_masto
+assert _arts_masto, "aucun article produit"
+assert _arts_masto[0].title == "Un billet Mastodon lisible", _arts_masto[0].title
+print("Fallback title: OK")
+
+
+# --- Une source active pendant le run n'est pas « muette » ---------------------
+with tempfile.TemporaryDirectory() as _d_sil:
+    _ancienne_db_sil = v.DB_FILE
+    v.DB_FILE = str(Path(_d_sil) / "sil.db")
+    _conn_sil = v.open_db()
+    try:
+        _auj_sil = datetime.now(timezone.utc)
+        _nom_sil = v.RSS_SOURCES[0]["name"]
+        _conn_sil.execute(
+            "INSERT INTO articles (lien, vu_le, source, categorie, titre) VALUES (?,?,?,?,?)",
+            ("https://s/9", (_auj_sil - timedelta(days=30)).date().isoformat(),
+             _nom_sil, "News", "t"))
+        _conn_sil.commit()
+        assert (_nom_sil, 30) in v.silent_sources(_conn_sil, _auj_sil), "devrait etre muette"
+        assert v.silent_sources(_conn_sil, _auj_sil, exclure={_nom_sil}) == [], \
+            "une source active ne doit plus etre muette"
+    finally:
+        _conn_sil.close()
+        v.DB_FILE = _ancienne_db_sil
+print("Silent exclusion: OK")
 
 
 # --- Fonctions pures : negation, traduction, regroupement ----------------------

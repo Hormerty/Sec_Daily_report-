@@ -942,7 +942,7 @@ EXTRA_SOURCES = len(EXTRA_SOURCE_NAMES)
 # Une source en erreur n'empêche pas le rapport : elle apparaît dans le bandeau jaune du mail.
 RSS_SOURCES = [
     # CERT & autorités
-    {"name": "CERT-FR avis", "url": "https://www.cert.ssi.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR"},
+    {"name": "CERT-FR avis", "url": "https://cert.cyber.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR"},
     # Le flux combine du nouveau domaine rend avis, alertes, actualite et rapports CTI ; celui de
     # l'ancienne adresse /alerte/feed/ ne produisait plus rien depuis des mois.
     {"name": "CERT-FR", "url": "https://cert.cyber.gouv.fr/feed/", "category": ALERTS, "country": "FR"},
@@ -954,7 +954,7 @@ RSS_SOURCES = [
     {"name": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "category": ALERTS, "country": "BE"},
     {"name": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "category": ALERTS, "country": "BE"},
     {"name": "NCSC-NL", "url": "https://advisories.ncsc.nl/rss/advisories", "category": ALERTS, "country": "NL"},
-    {"name": "CERT Polska", "url": "https://cert.pl/feed/", "category": ALERTS, "country": "PL"},
+    {"name": "CERT Polska", "url": "https://cert.pl/rss.xml", "category": ALERTS, "country": "PL"},
     {"name": "BSI CERT-Bund", "url": "https://wid.cert-bund.de/content/public/securityAdvisory/rss", "category": ALERTS, "country": "DE", "translate": True, "max": 30},
     {"name": "CERT-SE", "url": "https://www.cert.se/feed", "category": ALERTS, "country": "SE"},
     {"name": "CERT.hr", "url": "https://www.cert.hr/feed/", "category": ALERTS, "country": "HR"},
@@ -962,13 +962,13 @@ RSS_SOURCES = [
     {"name": "Full Disclosure", "url": "https://seclists.org/rss/fulldisclosure.rss", "category": ALERTS},
     {"name": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "category": ALERTS},
     # Vulnérabilités / exploits / avis fournisseurs
-    {"name": "FortiGuard PSIRT", "url": "https://www.fortiguard.com/rss/ir.xml", "category": ALERTS},
+    {"name": "FortiGuard PSIRT", "url": "https://filestore.fortinet.com/fortiguard/rss/ir.xml", "category": ALERTS},
     {"name": "Microsoft MSRC", "url": "https://api.msrc.microsoft.com/update-guide/rss", "category": ALERTS, "max": 10},
     {"name": "Palo Alto Advisories", "url": "https://security.paloaltonetworks.com/rss.xml", "category": ALERTS},
     {"name": "Cisco PSIRT", "url": "https://sec.cloudapps.cisco.com/security/center/psirtrss20/CiscoSecurityAdvisory.xml", "category": ALERTS},
     {"name": "oss-security", "url": "https://seclists.org/rss/oss-sec.rss", "category": ALERTS, "filter": True},
-    {"name": "Chrome Releases", "url": "https://chromereleases.googleblog.com/feeds/posts/default", "category": ALERTS, "filter": True, "max": 5},
-    {"name": "GitLab", "url": "https://about.gitlab.com/security-releases.xml", "category": ALERTS},
+    {"name": "Chrome Releases", "url": "https://feeds.feedburner.com/GoogleChromeReleases", "category": ALERTS, "filter": True, "max": 5},
+    {"name": "GitLab", "url": "https://docs.gitlab.com/releases/patch-releases.xml", "category": ALERTS},
     {"name": "Jenkins", "url": "https://www.jenkins.io/security/advisories/rss.xml", "category": ALERTS},
     # Agregateur d'exploits : prend le relais d'Exploit-DB, dont le flux ne bouge plus qu'une fois par quinzaine.
     {"name": "Sploitus", "url": "https://sploitus.com/rss", "category": ALERTS},
@@ -991,7 +991,7 @@ RSS_SOURCES = [
     # Autorite francaise : sanctions RGPD et suites des fuites de donnees.
     {"name": "CNIL", "url": "https://www.cnil.fr/fr/rss.xml", "category": DARKWEB, "country": "FR"},
     # Ventes de bases revendiquees, souvent publiees avant toute confirmation : poids modere.
-    {"name": "Dark Web Informer", "url": "https://darkwebinformer.com/feed/", "category": DARKWEB},
+    {"name": "Dark Web Informer", "url": "https://darkwebinformer.com/rss/", "category": DARKWEB},
     # Actualités & médias
     {"name": "BleepingComputer", "url": "https://www.bleepingcomputer.com/feed/", "category": NEWS},
     {"name": "Cybersecurity Dive", "url": "https://www.cybersecuritydive.com/feeds/news/", "category": NEWS},
@@ -1010,8 +1010,8 @@ RSS_SOURCES = [
     {"name": "UnderNews", "url": "https://www.undernews.fr/feed", "category": NEWS},
     {"name": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux-rss/thematique/securite/rss.xml", "category": NEWS},
     {"name": "IT-Connect", "url": "https://www.it-connect.fr/feed/", "category": NEWS, "filter": True},
-    {"name": "01net", "url": "https://www.01net.com/rss/info/flux-rss/flux-toutes-les-actualites/", "category": NEWS, "filter": True, "max": 5},
-    {"name": "Clubic", "url": "https://www.clubic.com/feed/news.rss", "category": NEWS, "filter": True, "max": 5},
+    {"name": "01net", "url": "https://www.01net.com/feed/", "category": NEWS, "filter": True, "max": 5},
+    {"name": "Clubic", "url": "https://www.clubic.com/feed/rss", "category": NEWS, "filter": True, "max": 5},
     {"name": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "category": NEWS, "filter": True},
     {"name": "Next", "url": "https://next.ink/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "TechCrunch (Security)", "url": "https://techcrunch.com/tag/cybersecurity/feed/", "category": NEWS, "filter": True, "max": 5},
@@ -1036,7 +1036,7 @@ RSS_SOURCES = [
     {"name": "Objective-See", "url": "https://objective-see.org/rss.xml", "category": INTEL},
     {"name": "Snyk", "url": "https://snyk.io/blog/feed/", "category": INTEL},
     {"name": "Cloudflare Blog", "url": "https://blog.cloudflare.com/rss/", "category": INTEL},
-    {"name": "Bitdefender Labs", "url": "https://www.bitdefender.com/blog/api/rss/labs/", "category": INTEL},
+    {"name": "Bitdefender Labs", "url": "https://www.bitdefender.com/nuxt/api/en-us/rss/labs/", "category": INTEL},
     {"name": "Qualys", "url": "https://blog.qualys.com/feed", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
@@ -1057,7 +1057,7 @@ RSS_SOURCES = [
     {"name": "Recorded Future", "url": "https://www.recordedfuture.com/feed/", "category": INTEL},
     {"name": "Red Canary", "url": "https://www.redcanary.com/blog/feed/", "category": INTEL},
     {"name": "GreyNoise", "url": "https://www.greynoise.io/blog/rss.xml", "category": INTEL},
-    {"name": "Citizen Lab", "url": "https://citizenlab.org/category/lab-news/feed/", "category": INTEL},
+    {"name": "Citizen Lab", "url": "https://citizenlab.ca/category/lab-news/feed/", "category": INTEL},
     {"name": "Google Cloud Threat Intelligence", "url": "https://cloudblog.withgoogle.com/topics/threat-intelligence/rss/", "category": INTEL},
     {"name": "CrowdStrike", "url": "https://www.crowdstrike.com/en-us/blog/feed", "category": INTEL},
     {"name": "Volexity", "url": "https://www.volexity.com/feed/", "category": INTEL},

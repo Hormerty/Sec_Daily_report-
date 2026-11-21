@@ -1001,6 +1001,17 @@ with tempfile.TemporaryDirectory() as _d_sil:
 print("Silent exclusion: OK")
 
 
+# --- Plafond d'âge sur les exploits anciens -----------------------------------
+# log4shell et CVE-2022-2588 remontaient en tête chaque semaine : un PoC pour une faille de
+# plus de deux ans ne doit pas dépasser orange.
+assert v._oldest_cve_year(("CVE-2022-2588", "CVE-2026-1")) == 2022
+assert v._oldest_cve_year(()) is None
+assert v._oldest_cve_year(("pas-une-cve",)) is None
+assert next(s for s in v.RSS_SOURCES if s["name"] == "Sploitus").get("age_cap") is True
+assert v.REMINDERS_MIN_DAYS >= 3 and v.REMINDERS_MIN_DAYS < v.REMINDERS_DAYS
+print("Age cap: OK")
+
+
 # --- Fonctions pures : negation, traduction, regroupement ----------------------
 # _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
 assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True

@@ -131,7 +131,8 @@ IGNORE_SEEN = _env_bool("IGNORE_SEEN", True, "IGNORER_DEJA_VUS")
 
 # Section « Toujours d'actualité » et classement des fournisseurs
 REMINDERS_N = 5
-REMINDERS_DAYS = 14              # CVE vues pour la 1re fois il y a 1 à 14 jours...
+REMINDERS_DAYS = 14              # CVE vues pour la 1re fois il y a 3 à 14 jours...
+REMINDERS_MIN_DAYS = 3           # ... pas moins : « vue il y a 2 jours » n'est pas un rappel
 REMINDERS_EPSS_MIN = 0.5         # ... avec EPSS >= 50 %, ou utilisées par des ransomwares
 VENDORS_N = _env_int("VENDORS_N", 5, 0)   # 0 = masquer complètement le classement des fournisseurs
 VENDORS_DAYS = 30
@@ -971,7 +972,7 @@ RSS_SOURCES = [
     {"name": "GitLab", "url": "https://docs.gitlab.com/releases/patch-releases.xml", "category": ALERTS},
     {"name": "Jenkins", "url": "https://www.jenkins.io/security/advisories/rss.xml", "category": ALERTS},
     # Agregateur d'exploits : prend le relais d'Exploit-DB, dont le flux ne bouge plus qu'une fois par quinzaine.
-    {"name": "Sploitus", "url": "https://sploitus.com/rss", "category": ALERTS},
+    {"name": "Sploitus", "url": "https://sploitus.com/rss", "category": ALERTS, "age_cap": True},
     # OT / ICS : seul canal couvrant les automates, que les CERT generalistes ne traitent pas.
     {"name": "CISA ICS Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml", "category": ALERTS},
     {"name": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "category": ALERTS, "max": 5},
@@ -1532,8 +1533,19 @@ def sync_kev(conn: sqlite3.Connection | None, vulns: list[dict]) -> None:
         log.warning("KEV synchronization failed: %s", exc)
 
 
+def _oldest_cve_year(cves) -> int | None:
+    """Année de la plus ancienne CVE citée, lue dans l'identifiant (CVE-2022-1234 → 2022)."""
+    annees = []
+    for cve in cves:
+        morceaux = str(cve).split("-")
+        if len(morceaux) >= 2 and morceaux[1].isdigit():
+            annees.append(int(morceaux[1]))
+    return min(annees) if annees else None
+
+
 def kev_reminders(conn: sqlite3.Connection | None, session: requests.Session, today: str,
                   already_shown: set[str], n: int = REMINDERS_N, max_days: int = REMINDERS_DAYS,
+                  min_days: int = REMINDERS_MIN_DAYS,
                   epss_min: float = REMINDERS_EPSS_MIN) -> list[dict]:
     """CVE du KEV vues pour la 1re fois il y a 1 à `max_days` jours et toujours dangereuses.
 
@@ -1550,7 +1562,10 @@ def kev_reminders(conn: sqlite3.Connection | None, session: requests.Session, to
     except (sqlite3.Error, ValueError) as exc:
         log.warning("Reminders unavailable: %s", exc)
         return []
-    rows = [row for row in rows if row[0] not in already_shown]
+    # « Vue il y a deux jours » n'est pas un rappel : on ne retient que ce qui a déjà vieilli.
+    plancher = (now - timedelta(days=min_days)).isoformat()
+    rows = [row for row in rows
+            if row[0] not in already_shown and str(row[1]) <= plancher]
     if not rows:
         return []
     epss = fetch_epss(session, [cve for cve, _, _ in rows])
@@ -1853,6 +1868,12 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             countries = (home,) + countries
         score, _ = compute_criticality(short)
         score += SOURCE_WEIGHTS.get(source["name"], 0)
+        # Un exploit publié pour une faille de plus de deux ans n'a pas l'urgence d'une KEV du
+        # jour : il plafonne à orange, sinon log4shell remonte en tête chaque semaine.
+        if source.get("age_cap"):
+            annee = _oldest_cve_year(extract_cves(short))
+            if annee and datetime.now(timezone.utc).year - annee >= 2:
+                score = min(score, CRITICAL_THRESHOLD - 1)
         articles.append(
             Article(
                 source=source["name"],

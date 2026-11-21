@@ -499,6 +499,11 @@ STACK_PRODUCTS: dict[str, list[str]] = {
         "qradar", "qradar siem", "qradar soar", "qradar edr",
         "qradar log manager", "qradar on cloud", "ibm qradar",
     ],
+    # Vidéosurveillance et contrôle d'accès sur site : un firmware de caméra est une porte.
+    "Avigilon": [
+        "avigilon", "avigilon unity", "avigilon video", "avigilon access control",
+        "avigilon alta", "motorola avigilon",
+    ],
 }
 
 # Ta stack + les produits critiques les plus exploités (liste inspirée de

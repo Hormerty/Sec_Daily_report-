@@ -186,6 +186,21 @@ All values are environment variables, all optional:
 
 Your own organisation is described in three places at the top of `veille.py`: `KEYWORDS_TARGETS` (products and vendors you care about), `STACK_PRODUCTS` (your actual tooling) and `COUNTRIES` (the footprint used by the European section). Editing those three lists is what turns a generic news digest into a watchlist.
 
+### Adding a product to your stack
+
+`STACK_PRODUCTS` maps a name — the one printed in the report — to the phrases that identify it, lower-case and matched on word boundaries. One entry is enough: the report header, the stack section and the alert threshold all follow from the dict.
+
+```python
+STACK_PRODUCTS["GitLab"] = ["gitlab", "gitlab ci", "gitlab runner", "gitlab self-managed"]
+```
+
+Two things worth knowing before adding one:
+
+- **The words you choose decide the noise.** `box` and `teams` needed guards in the code — *black box*, *box office*, *security teams* — and `outlook` needed a filter for every market study titled *Threat Outlook 2027*. A bare common word matches everything. Give the phrase, not the word: `box drive`, not `box`.
+- **A stack hit is loud by design.** Any article naming the product scores +2, and the alert threshold drops from 14 to 5, so a careless keyword turns the 3-hourly alert into a newsletter. Add the product you actually run, not the one you keep reading about.
+
+The dict order is the order the sections appear in the report, and each one keeps at most six articles per run, 24 in total.
+
 ---
 
 ## Tests

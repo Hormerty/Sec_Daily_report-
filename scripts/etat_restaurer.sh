@@ -4,7 +4,7 @@
 # plutôt que de repartir d'une base vide qui écraserait l'historique à la sauvegarde.
 set -euo pipefail
 BRANCHE="${ETAT_BRANCHE:-data}"
-FICHIERS=(seen.json stats.db kev_cache.json alertes_envoyees.json)
+FICHIERS=(seen.json stats.db kev_cache.json alertes_envoyees.json metasploit_cache.json)
 
 set +e
 git ls-remote --exit-code --heads origin "$BRANCHE" >/dev/null 2>&1

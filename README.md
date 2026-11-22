@@ -2,7 +2,7 @@
 
 A self-hosted daily intelligence brief **built for a European footprint**. It reads 121 public sources, removes the noise, scores what matters for a given organisation, and sends one e-mail — every morning at 06:00.
 
-No dashboard, no account, no SaaS. A Python script, two GitHub Actions workflows, and your inbox.
+No dashboard, no account, no SaaS. A Python script, three GitHub Actions workflows, and your inbox.
 
 ---
 
@@ -84,12 +84,15 @@ Enrichment is cached and optional: **EPSS** from FIRST, **CVSS and the affected 
 
 ## How it runs
 
-Two GitHub Actions workflows, no server:
+Three GitHub Actions workflows, no server:
 
 ```
-main.yml     05:58, 07:28, 08:58 UTC   the daily report
-alerte.yml   every 3 hours             immediate alerts
+main.yml      05:58, 07:28, 08:58 UTC   the daily report
+alerte.yml    every 3 hours             immediate alerts
+verifier.yml  every pull request        the offline checks, blocking
 ```
+
+The third one touches no state and needs no secret: it installs the dependencies, then runs the offline checks and `pytest` on every pull request and every push to `main`. Its job is to make a dependency bump or a contributor's patch fail *before* the merge rather than in the 06:00 run.
 
 State lives on a dedicated `data` branch — seen links, a SQLite history, API caches — committed as a single force-pushed commit. That keeps `main` clean and makes a fresh clone fully functional.
 
@@ -192,7 +195,7 @@ python _check_veille.py     # offline, no network, ~50 named checks
 pytest                      # the same ground, through pytest
 ```
 
-The offline suite covers scoring, deduplication, CVE extraction, country and stack detection, feed edge cases (undated entries, HTML served instead of XML, moved addresses) and the silence detection. It runs in a second and needs no credentials, which is why it sits in front of every commit.
+The offline suite covers scoring, deduplication, CVE extraction, country and stack detection, feed edge cases (undated entries, HTML served instead of XML, moved addresses) and the silence detection. It runs in a second and needs no credentials, which is why `verifier.yml` runs it on every pull request and every push to `main`. A red check stays red on the pull request — and, on a public repository, the commit that would break the morning report is stopped at the door rather than discovered at 06:00.
 
 ---
 

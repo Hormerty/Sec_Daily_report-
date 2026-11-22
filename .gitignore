@@ -3,6 +3,7 @@ seen.json
 stats.db
 kev_cache.json
 alertes_envoyees.json
+metasploit_cache.json
 
 # Python
 __pycache__/

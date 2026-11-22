@@ -52,6 +52,8 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           RANSOMWARE_API_KEY: ${{ secrets.RANSOMWARE_API_KEY }}
+          # 5 000 requetes/heure pour l'API Advisory au lieu de 60, partagees entre runners.
+          GITHUB_TOKEN: ${{ github.token }}
           TZ: Europe/Brussels
           MODE_ALERTE: "1"
           ALERTE_FENETRE_HEURES: ${{ inputs.fenetre_heures || '8' }}   # 8 h = 3 h entre deux passages + marge

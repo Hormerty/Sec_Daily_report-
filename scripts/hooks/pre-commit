@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Contrôle des secrets avant le commit.
+#
+# GitHub ne scanne les motifs génériques — clés privées, chaînes de connexion — que
+# sur les dépôts d'organisation sous Secret Protection. Celui-ci appartient à un
+# compte personnel : l'option n'est pas proposée, ni dans l'UI ni par l'API. gitleaks
+# comble le manque ici, au seul endroit où cela empêche le secret d'entrer dans
+# l'historique — un secret poussé se révoque, il ne s'édite pas.
+#
+# À activer une fois pour toutes, depuis la racine du dépôt :
+#   git config core.hooksPath scripts/hooks
+#
+# Sans gitleaks installé, le hook le signale et laisse passer : un contributeur non
+# équipé doit pouvoir commiter, et la CI refait le contrôle de toute façon.
+set -uo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks absent : contrôle des secrets ignoré (voir la section Tests du README)." >&2
+  exit 0
+fi
+
+if gitleaks git --help >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact --no-banner
+else
+  # Ancienne interface, pour un gitleaks antérieur à la 8.19.
+  gitleaks protect --staged --redact --no-banner
+fi

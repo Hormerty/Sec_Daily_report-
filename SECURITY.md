@@ -4,6 +4,24 @@
 
 This project is a single script, not a library. Only the latest commit on `main` is supported — there are no maintained branches and no backports.
 
+## Secret scanning
+
+Provider credentials are covered the usual way: secret scanning and push protection are both on, so an AWS, GitHub, OpenAI or Stripe key pasted by mistake is blocked at the push, before it ever reaches the history.
+
+Two things are missing, and **not by oversight**. GitHub reserves them for *organization-owned* repositories carrying Secret Protection:
+
+- **generic patterns** — private keys, connection strings, credentials without a known provider;
+- **validity checks** — whether a detected credential is still live.
+
+This repository sits under a personal account, so neither is offered: the settings page hides them and the REST API answers `200` while silently ignoring both fields. That is what a feature unavailable to a given account type looks like, and no plan changes it — only moving the repository into an organization would.
+
+The gap is closed by [`gitleaks`](https://github.com/gitleaks/gitleaks) instead, with its default rules:
+
+- `verifier.yml` scans every pull request, so a secret cannot be merged into `main`;
+- `scripts/hooks/pre-commit`, once enabled with `git config core.hooksPath scripts/hooks`, stops it before the commit that would make it part of the history.
+
+Both report nothing on the current tree and history. If you find a way around either check, that is in scope — see below.
+
 ## Reporting a vulnerability
 
 **Please do not open a public issue for a security problem.**

@@ -27,7 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          fetch-depth: 1
+          # Historique complet : gitleaks analyse l'intervalle de la PR, pas seulement la tête.
+          fetch-depth: 0
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
@@ -46,3 +47,11 @@ jobs:
 
       - name: Tests pytest
         run: pytest -q
+
+      # GitHub scanne les motifs génériques (clés privées, chaînes de connexion) sur les
+      # seuls dépôts d'organisation sous Secret Protection ; celui-ci appartient à un
+      # compte personnel. gitleaks couvre le même terrain, et bloque avant le merge.
+      - name: Secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

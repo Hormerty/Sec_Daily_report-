@@ -1,0 +1,6 @@
+# Shell scripts run under Git Bash on Windows as well as on the Linux runners, and a
+# CRLF in the shebang stops them from executing at all. With core.autocrlf=true a
+# checkout would otherwise hand out Windows line endings. Pin LF for both places.
+.gitattributes   text eol=lf
+*.sh            text eol=lf
+scripts/hooks/* text eol=lf

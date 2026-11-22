@@ -197,6 +197,14 @@ pytest                      # the same ground, through pytest
 
 The offline suite covers scoring, deduplication, CVE extraction, country and stack detection, feed edge cases (undated entries, HTML served instead of XML, moved addresses) and the silence detection. It runs in a second and needs no credentials, which is why `verifier.yml` runs it on every pull request and every push to `main`. A red check stays red on the pull request — and, on a public repository, the commit that would break the morning report is stopped at the door rather than discovered at 06:00.
 
+A fourth step in the same workflow guards the secrets themselves. GitHub scans provider credentials on public repositories for free, but the **generic** patterns — private keys, connection strings — are reserved for organization-owned repositories, and this one sits under a personal account. [`gitleaks`](https://github.com/gitleaks/gitleaks) covers that ground instead, with its default rules. The same check can run before the commit rather than after the push:
+
+```bash
+git config core.hooksPath scripts/hooks   # once, from the repository root
+```
+
+It needs `gitleaks` on your `PATH`; without it the hook says so and lets the commit through, and CI still does the check.
+
 ---
 
 ## What this is not

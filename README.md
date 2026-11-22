@@ -1,6 +1,6 @@
 # Cyber security & OSINT watch
 
-A self-hosted daily intelligence brief. It reads 121 public sources, removes the noise, scores what matters for a given organisation, and sends one e-mail — every morning at 06:00.
+A self-hosted daily intelligence brief **built for a European footprint**. It reads 121 public sources, removes the noise, scores what matters for a given organisation, and sends one e-mail — every morning at 06:00.
 
 No dashboard, no account, no SaaS. A Python script, two GitHub Actions workflows, and your inbox.
 
@@ -24,6 +24,20 @@ Every morning, the report arrives with:
 | **Trend** | Seven-day comparison, volume, severity split, most active sources |
 
 Each line carries what you actually need to triage it: severity badge, country flags, product affected, MITRE technique, actor, EPSS probability, CVSS score, reference links, and — when several outlets covered the same story — how many of them did.
+
+---
+
+## Built around a European footprint
+
+This is not a global feed reader with a European filter bolted on: the orientation is in the design.
+
+- **European focus is the section that matters.** Every item mentioning a country of the footprint is regrouped there, so a German advisory about a French subsidiary does not disappear among two hundred headlines. The footprint has 29 entries, EU included, and lives in `COUNTRIES`.
+- **The national CERTs of the footprint are queried directly** — CERT-FR and ANSSI, CERT-EU, BSI, NCSC-NL, CERT-SE, CCB, CIRCL, CSIRT Italia, INCIBE, NCSC UK, NSM and the others — and the report always closes with their index, even on a quiet day. That is the part that tells you where to look next.
+- **ENISA's EUVD** collector runs alongside CISA's KEV, so the European vulnerability database is covered, not only the American one.
+- **French-language sources are read in French**, never machine-translated — Next, 01net, Zataz, Korben, Clubic, IT-Connect, FrenchBreaches, Le Monde Informatique — because a French breach rarely reaches the English press.
+- **NIS2, GDPR, RGPD, DORA** are recognised keywords, and the Benelux plus France weigh more heavily than a passing mention of another country.
+
+Change `COUNTRIES` to your own perimeter and the section follows. The default is Europe — Belgium, France and their neighbours first — because that is where the reader sits.
 
 ---
 
@@ -93,15 +107,50 @@ Three safety nets worth knowing about:
 pip install -r requirements.txt
 ```
 
-Three variables are mandatory, everything else has a sane default:
+### Secrets you must provide
+
+The tool sends mail through SMTP, so it needs a mail account. Three secrets are mandatory — there is no default that would let it run without them.
+
+| Secret | Required | What it is | Where to get it |
+|---|---|---|---|
+| `EMAIL_USER` | **yes** | The account the report is sent from | Your provider, e.g. `mywatch@gmail.com` |
+| `EMAIL_PASSWORD` | **yes** | An **application password** — never your account password | Gmail: Account → Security → 2-step verification → App passwords. Any provider offering SMTP works |
+| `RECIPIENT_EMAIL` | **yes** | Where the report is delivered, usually the same address | — |
+| `NVD_API_KEY` | no | Raises the NVD rate limit: one CVSS lookup every 0.7 s instead of every 6.5 s, so 30 per run instead of 10 | <https://nvd.nist.gov/developers/request-an-api-key> |
+| `RANSOMWARE_API_KEY` | no | Adds victim claims and group names from Ransomware.live | <https://www.ransomware.live/> |
+| `HEALTHCHECK_URL` | no | Dead man's switch for the daily report, 24 h period | <https://healthchecks.io/> |
+| `HEALTHCHECK_URL_ALERTE` | no | A **second, separate** check for the 3-hourly alert, 3 h period | <https://healthchecks.io/> |
+
+Three things worth knowing before you create them:
+
+- **`GITHUB_TOKEN` is not yours to create.** Actions provides it; it is what lets the GitHub Advisory collector work.
+- **The two healthcheck URLs are read by the workflows, not by the script** — they are a `curl` at the end of each job. They must be two distinct UUIDs, otherwise a failed daily report would look like a quiet alert run.
+- **Never commit these values.** `.env` is already in `.gitignore`, and a leaked personal access token has to be revoked, not edited out.
+
+### Where to put them
+
+Locally, export them in your shell — or keep a `.env` file you never commit:
 
 ```bash
-EMAIL_USER          # SMTP account, e.g. bot@gmail.com
-EMAIL_PASSWORD      # app password, not your account password
-RECIPIENT_EMAIL     # where the report goes
+export EMAIL_USER="mywatch@gmail.com"
+export EMAIL_PASSWORD="xxxx xxxx xxxx xxxx"
+export RECIPIENT_EMAIL="me@example.com"
 ```
 
-Optional, but they change the experience: `NVD_API_KEY` (CVSS lookups go from 6 s to 0.7 s apart), `RANSOMWARE_API_KEY`, `HEALTHCHECK_URL` and `HEALTHCHECK_URL_ALERTE`.
+On GitHub, under **Settings → Secrets and variables → Actions → New repository secret**, with exactly these names. The workflows pass them to the script; nothing else has to be configured.
+
+### SMTP defaults
+
+Gmail is the default. For another provider:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` | Your SMTP server |
+| `SMTP_SECURITY` | `ssl` | or `starttls` |
+| `SMTP_PORT` | `465` with `ssl`, `587` with `starttls` | Adjust if your provider differs |
+| `EMAIL_ENCODING` | `base64` | `8bit` sends a smaller message when the server accepts it |
+
+### First run
 
 Then a first run:
 
@@ -109,9 +158,9 @@ Then a first run:
 python veille.py
 ```
 
-The first launch builds a baseline: KEV and Metasploit caches are filled and existing links are recorded, so the first report is smaller than the following ones. That is expected.
+The first launch builds a baseline: KEV and Metasploit caches are filled and existing links are recorded, so the first report is smaller than the following ones. That is expected, not a bug.
 
-On GitHub, add the same names under **Settings → Secrets and variables → Actions**, and the workflows take over.
+On GitHub, once the secrets are in place, the workflows take over — no further setup.
 
 ---
 
@@ -124,10 +173,14 @@ All values are environment variables, all optional:
 | `WINDOW_HOURS` | `27` | Look-back window; 24 h plus margin for schedule drift |
 | `MAX_PER_SOURCE` | `30` | Items kept per source, highest score first |
 | `MAX_EMAIL_ARTICLES` | `1000` | Hard cap on a single e-mail |
+| `MAX_EMAIL_BYTES` | `0` | Size cap; `0` means no cap |
 | `CORROBORATION_MIN` | `3` | Sources needed to corroborate a CVE |
+| `MAX_CVSS` | `30` / `10` | CVSS lookups per run, depending on `NVD_API_KEY` |
 | `ALERT_THRESHOLD` | `14` | Score that triggers an immediate alert |
 | `ALERT_STACK_THRESHOLD` | `5` | Same, for a product in your stack |
+| `ALERT_MAX` | `5` | Items per alert e-mail; the rest waits for the next slot |
 | `FORCE_VEILLE` | — | `1` sends a report even if one already went out |
+| `IGNORE_SEEN` | `1` | `0` replays items already delivered |
 
 Your own organisation is described in three places at the top of `veille.py`: `KEYWORDS_TARGETS` (products and vendors you care about), `STACK_PRODUCTS` (your actual tooling) and `COUNTRIES` (the footprint used by the European section). Editing those three lists is what turns a generic news digest into a watchlist.
 

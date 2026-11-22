@@ -109,23 +109,22 @@ pip install -r requirements.txt
 
 ### Secrets you must provide
 
-The tool sends mail through SMTP, so it needs a mail account. Three secrets are mandatory — there is no default that would let it run without them.
+The tool sends mail through SMTP, so it needs a mail account. Three secrets are mandatory — there is no default that would let it run without them. A fourth, `GITHUB_TOKEN`, is supplied by Actions and must not be created.
 
 | Secret | Required | What it is | Where to get it |
 |---|---|---|---|
 | `EMAIL_USER` | **yes** | The account the report is sent from | Your provider, e.g. `mywatch@gmail.com` |
-| `EMAIL_PASSWORD` | **yes** | An **application password** — never your account password | Gmail: Account → Security → 2-step verification → App passwords. Any provider offering SMTP works |
+| `EMAIL_PASSWORD` | **yes** | An **application password** — never the account password | Gmail: Account → Security → 2-step verification → App passwords. Any provider offering SMTP works |
 | `RECIPIENT_EMAIL` | **yes** | Where the report is delivered, usually the same address | — |
+| `GITHUB_TOKEN` | **automatic** | Supplied by Actions and used by the GitHub Advisory collector. **Never create it, never store it yourself** | — |
 | `NVD_API_KEY` | no | Raises the NVD rate limit: one CVSS lookup every 0.7 s instead of every 6.5 s, so 30 per run instead of 10 | <https://nvd.nist.gov/developers/request-an-api-key> |
 | `RANSOMWARE_API_KEY` | no | Adds victim claims and group names from Ransomware.live | <https://www.ransomware.live/> |
-| `HEALTHCHECK_URL` | no | Dead man's switch for the daily report, 24 h period | <https://healthchecks.io/> |
-| `HEALTHCHECK_URL_ALERTE` | no | A **second, separate** check for the 3-hourly alert, 3 h period | <https://healthchecks.io/> |
+| `HEALTHCHECK_URL` | no | Dead man's switch for the daily report, 24 h period. **Must be a different UUID from the alert one** | <https://healthchecks.io/> |
+| `HEALTHCHECK_URL_ALERTE` | no | Second, separate check for the 3-hourly run, 3 h period. **Must be a different UUID from the daily one** | <https://healthchecks.io/> |
 
-Three things worth knowing before you create them:
-
-- **`GITHUB_TOKEN` is not yours to create.** Actions provides it; it is what lets the GitHub Advisory collector work.
-- **The two healthcheck URLs are read by the workflows, not by the script** — they are a `curl` at the end of each job. They must be two distinct UUIDs, otherwise a failed daily report would look like a quiet alert run.
-- **Never commit these values.** `.env` is already in `.gitignore`, and a leaked personal access token has to be revoked, not edited out.
+> ⚠️ **The two healthcheck URLs are read by the workflows, not by the script** — they are a `curl` at the end of each job, not a variable the Python reads. Point both at the same UUID and a failed daily report will look exactly like a quiet alert run: you lose the only signal that tells you the bot itself has stopped.
+>
+> ⚠️ **Nothing in this table is ever committed.** `.env` is already in `.gitignore`, and a leaked token is revoked at the provider, never simply edited out of a file — git remembers.
 
 ### Where to put them
 

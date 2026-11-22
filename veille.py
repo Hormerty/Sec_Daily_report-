@@ -31,7 +31,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, quote_plus, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -85,6 +85,12 @@ SEEN_MAX = 3000
 DB_FILE = "stats.db"             # statistiques historiques SQLite (commité aussi)
 DB_RETENTION_DAYS = 400
 KEV_CACHE_FILE = "kev_cache.json"  # dernier catalogue KEV réussi (secours hors ligne)
+# Liste cumulative des CVE dotées d'un module Metasploit : seule la différence importe.
+METASPLOIT_URL = "https://feeds.ecrimelabs.net/data/metasploit-cve"
+METASPLOIT_CACHE_FILE = "metasploit_cache.json"
+METASPLOIT_MAX = _env_int("METASPLOIT_MAX", 10, 1)
+# Télémétrie des pots de miel OffSeq : nombre de tentatives observées par CVE sur sept jours.
+MIRAGE_URL = "https://feeds.offseq.com/mirage-feed/latest/cves-7d.csv"
 
 MAX_EMAIL_ARTICLES = _env_int("MAX_EMAIL_ARTICLES", 1000, 20, "MAX_ARTICLES_EMAIL")
 # 0 = aucun plafond de taille : le message part complet et Gmail en tronque seulement l'affichage
@@ -94,7 +100,7 @@ MAX_EMAIL_BYTES = _env_int("MAX_EMAIL_BYTES", 0, 0)
 # base64 = universel (tout serveur SMTP) ; 8bit = ~26 % plus léger mais suppose 8BITMIME (Gmail OK).
 EMAIL_ENCODING = _env_str("EMAIL_ENCODING", "base64").lower()
 
-WINDOW_HOURS = _env_int("WINDOW_HOURS", 48, 1, "FENETRE_HEURES")  # 48 h : rapport glissant sur 2 jours
+WINDOW_HOURS = _env_int("WINDOW_HOURS", 27, 1, "FENETRE_HEURES")  # 27 h : un jour plus la marge de dérive des créneaux
 KEV_DAYS = _env_int("KEV_DAYS", 2, 1, "CISA_JOURS")  # 2 : KEV ajoutées sur les 2 derniers jours
 MAX_PER_SOURCE = 30
 
@@ -125,7 +131,8 @@ IGNORE_SEEN = _env_bool("IGNORE_SEEN", True, "IGNORER_DEJA_VUS")
 
 # Section « Toujours d'actualité » et classement des fournisseurs
 REMINDERS_N = 5
-REMINDERS_DAYS = 14              # CVE vues pour la 1re fois il y a 1 à 14 jours...
+REMINDERS_DAYS = 14              # CVE vues pour la 1re fois il y a 3 à 14 jours...
+REMINDERS_MIN_DAYS = 3           # ... pas moins : « vue il y a 2 jours » n'est pas un rappel
 REMINDERS_EPSS_MIN = 0.5         # ... avec EPSS >= 50 %, ou utilisées par des ransomwares
 VENDORS_N = _env_int("VENDORS_N", 5, 0)   # 0 = masquer complètement le classement des fournisseurs
 VENDORS_DAYS = 30
@@ -141,6 +148,12 @@ SHOW_COUNTRY_LINKS = _env_bool("SHOW_COUNTRY_LINKS", True, "AFFICHER_LIENS_PAYS"
 # Rempli par collect_cisa_kev : le catalogue KEV complet sert au classement des fournisseurs
 # et à la synchronisation de la base.
 KEV_VULNS: list[dict] = []
+
+# Résultat de chaque source au run courant : (succès, erreur, nombre d'articles). Rempli par
+# collect_source() dans les fils, puis écrit en base une fois la collecte terminée.
+SOURCE_RESULTS: dict[str, tuple[bool, str | None, int]] = {}
+# Sources qui répondent depuis une autre adresse que celle configurée : nom -> URL finale.
+SOURCE_MOVED: dict[str, str] = {}
 
 # Enrichissement (tout est optionnel : sans clé ou en cas d'erreur, le rapport part quand même)
 EPSS_URL = "https://api.first.org/data/v1/epss"
@@ -164,6 +177,11 @@ USER_AGENT = (
 # pour ne pas influencer les réponses JSON (NVD, KEV, GitHub).
 _FEED_ACCEPT = ("application/rss+xml, application/atom+xml, application/xml;q=0.9, "
                 "text/xml;q=0.8, */*;q=0.7")
+
+# Agent de repli, honnête sur l'identité du client. Plusieurs sites refusent un client qui se
+# déclare navigateur sans en être un (Schneier, NVISO, Hackmageddon répondent 403 ou coupent la
+# connexion) alors qu'ils acceptent un agent de lecteur de flux.
+FEED_READER_UA = "Nours_sec_bot/1.0 (+https://github.com/Hormerty/Sec_Daily_report-)"
 
 # Empreinte IBM en Europe : chaque pays où IBM possède une entité ou un bureau.
 # Chaque entrée porte les mots-clés qui marquent un article, les liens de l'autorité
@@ -476,6 +494,16 @@ STACK_PRODUCTS: dict[str, list[str]] = {
     "Outlook": ["outlook", "outlook web app", "outlook.com", "exchange online", "owa"],
     # Parapluie de Outlook et Teams : très bavard, donc filtré par _stack_watch_item().
     "Microsoft 365": ["microsoft 365", "office 365", "m365", "o365"],
+    # SIEM IBM : la qradar famille couvre SIEM, SOAR, EDR et Log Manager d'un seul motif.
+    "QRadar": [
+        "qradar", "qradar siem", "qradar soar", "qradar edr",
+        "qradar log manager", "qradar on cloud", "ibm qradar",
+    ],
+    # Vidéosurveillance et contrôle d'accès sur site : un firmware de caméra est une porte.
+    "Avigilon": [
+        "avigilon", "avigilon unity", "avigilon video", "avigilon access control",
+        "avigilon alta", "motorola avigilon",
+    ],
 }
 
 # Ta stack + les produits critiques les plus exploités (liste inspirée de
@@ -498,9 +526,16 @@ KEYWORDS_TARGETS = [
     "vllm", "cups",
     # ERP / middleware
     "sap netweaver", "sap commerce", "oracle e-business suite",
-    "ibm websphere", "ibm maximo", "ibm aspera", "node.js", "nodejs",
-    # Matériel et fournisseurs locaux
-    "amag", "symmetry", "securitas", "genetec", "voo", "ores",
+    # « aspera » seul : les titres écrivent souvent « Aspera Faspex » sans le préfixe IBM.
+    "ibm websphere", "ibm maximo", "aspera", "qradar", "node.js", "nodejs",
+    # Renseignement de menace IBM ; « xforce » couvre la graphie sans tiret.
+    "x-force", "xforce",
+    # Compromission de la chaîne CI : « supply chain » seul ne suffisait pas à faire remonter
+    # l'affaire wfx, qui plafonnait à 3 points pour un seuil d'affichage de 5.
+    "supply chain", "github actions",
+    # Matériel et fournisseurs locaux. Avigilon (Motorola) : vidéosurveillance, zéro CVE au
+    # NVD sur trente jours, mais un angle mort tant qu'aucun mot-clé ne le nomme.
+    "amag", "symmetry", "securitas", "genetec", "avigilon", "voo", "ores",
     "anker", "solix", "tp-link", "tplink",
     # Acces distant d'entreprise : meme famille que Citrix, Ivanti et les SSL-VPN.
     "teamviewer",
@@ -615,6 +650,11 @@ def detect_stack(text: str) -> tuple[str, ...]:
 # --- Score de criticité --------------------------------------------------------
 CRITICAL_THRESHOLD = 10    # 🔴
 IMPORTANT_THRESHOLD = 5    # 🟠 ; en dessous : aucune pastille (une pastille verte laisserait croire "sans danger")
+
+# Couverture croisée : trois sources indépendantes qui reparlent de la même CVE le même jour
+# valent mieux qu'un âge. C'est l'indice d'une exploitation en masse, pas d'un vestige.
+CORROBORATION_MIN = _env_int("CORROBORATION_MIN", 3, 2)
+CORROBORATION_BONUS = _env_int("CORROBORATION_BONUS", 3, 0)
 
 # Pays de proximite immediate : Benelux et France, la ou se trouve le siege. Une mention de ces
 # pays pese plus lourd que le reste de l'empreinte IBM, victimes ransomware comprises.
@@ -890,11 +930,23 @@ SOURCE_RANSOMWARE_LIVE = "Ransomware.live"
 SOURCE_KEV = "CISA KEV"
 SOURCE_GITHUB = "GitHub Advisory"
 SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
+SOURCE_HIBP = "Have I Been Pwned"
+SOURCE_EUVD = "EUVD (ENISA)"
+SOURCE_NVD = "NVD (éditeurs)"
+SOURCE_METASPLOIT = "Metasploit (CVE armées)"
 # Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
 RANSOMWARE_API_KEY = _env_str("RANSOMWARE_API_KEY", "")
+# Jeton GitHub pour l'API Advisory : 5 000 requetes/heure au lieu de 60, quota partage entre tous
+# les runners. Le workflow le fournit via ${{ github.token }}.
+GITHUB_TOKEN = _env_str("GITHUB_TOKEN", "", "GH_TOKEN")
 
-# Sources hors flux RSS, collectées par du code dédié : CISA KEV et GitHub Advisory.
-EXTRA_SOURCES = 2
+# Sources hors flux RSS, collectees par du code dedie. Cette liste fait foi : le total affiche
+# s'en deduit, donc ajouter un collecteur sans mettre le compteur a jour devient impossible.
+EXTRA_SOURCE_NAMES = (
+    SOURCE_KEV, SOURCE_GITHUB, SOURCE_RANSOMWARE_API,
+    SOURCE_HIBP, SOURCE_EUVD, SOURCE_NVD, SOURCE_METASPLOIT,
+)
+EXTRA_SOURCES = len(EXTRA_SOURCE_NAMES)
 # Pistes API non câblées ici car elles ne produisent pas des articles RSS :
 # CIRCL CVE Search (JSON CVE), Feodo Tracker (IP de C2), GitHub Search (PoC).
 # GitHub Advisory, lui, est branché dans collect_github_advisories().
@@ -902,8 +954,10 @@ EXTRA_SOURCES = 2
 # Une source en erreur n'empêche pas le rapport : elle apparaît dans le bandeau jaune du mail.
 RSS_SOURCES = [
     # CERT & autorités
-    {"name": "CERT-FR avis", "url": "https://www.cert.ssi.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR"},
-    {"name": "CERT-FR alertes", "url": "https://www.cert.ssi.gouv.fr/alerte/feed/", "category": ALERTS, "country": "FR"},
+    {"name": "CERT-FR avis", "url": "https://cert.cyber.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR"},
+    # Le flux combine du nouveau domaine rend avis, alertes, actualite et rapports CTI ; celui de
+    # l'ancienne adresse /alerte/feed/ ne produisait plus rien depuis des mois.
+    {"name": "CERT-FR", "url": "https://cert.cyber.gouv.fr/feed/", "category": ALERTS, "country": "FR"},
     {"name": "CERT-EU", "url": "https://cert.europa.eu/publications/security-advisories-rss", "category": ALERTS, "country": "EU"},
     {"name": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "category": ALERTS},
     {"name": "NCSC UK", "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "category": ALERTS, "country": "GB"},
@@ -912,7 +966,7 @@ RSS_SOURCES = [
     {"name": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "category": ALERTS, "country": "BE"},
     {"name": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "category": ALERTS, "country": "BE"},
     {"name": "NCSC-NL", "url": "https://advisories.ncsc.nl/rss/advisories", "category": ALERTS, "country": "NL"},
-    {"name": "CERT Polska", "url": "https://cert.pl/feed/", "category": ALERTS, "country": "PL"},
+    {"name": "CERT Polska", "url": "https://cert.pl/rss.xml", "category": ALERTS, "country": "PL"},
     {"name": "BSI CERT-Bund", "url": "https://wid.cert-bund.de/content/public/securityAdvisory/rss", "category": ALERTS, "country": "DE", "translate": True, "max": 30},
     {"name": "CERT-SE", "url": "https://www.cert.se/feed", "category": ALERTS, "country": "SE"},
     {"name": "CERT.hr", "url": "https://www.cert.hr/feed/", "category": ALERTS, "country": "HR"},
@@ -920,12 +974,18 @@ RSS_SOURCES = [
     {"name": "Full Disclosure", "url": "https://seclists.org/rss/fulldisclosure.rss", "category": ALERTS},
     {"name": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "category": ALERTS},
     # Vulnérabilités / exploits / avis fournisseurs
-    {"name": "FortiGuard PSIRT", "url": "https://www.fortiguard.com/rss/ir.xml", "category": ALERTS},
+    {"name": "FortiGuard PSIRT", "url": "https://filestore.fortinet.com/fortiguard/rss/ir.xml", "category": ALERTS},
     {"name": "Microsoft MSRC", "url": "https://api.msrc.microsoft.com/update-guide/rss", "category": ALERTS, "max": 10},
     {"name": "Palo Alto Advisories", "url": "https://security.paloaltonetworks.com/rss.xml", "category": ALERTS},
     {"name": "Cisco PSIRT", "url": "https://sec.cloudapps.cisco.com/security/center/psirtrss20/CiscoSecurityAdvisory.xml", "category": ALERTS},
     {"name": "oss-security", "url": "https://seclists.org/rss/oss-sec.rss", "category": ALERTS, "filter": True},
-    {"name": "Chrome Releases", "url": "https://chromereleases.googleblog.com/feeds/posts/default", "category": ALERTS, "filter": True, "max": 5},
+    {"name": "Chrome Releases", "url": "https://feeds.feedburner.com/GoogleChromeReleases", "category": ALERTS, "filter": True, "max": 5},
+    {"name": "GitLab", "url": "https://docs.gitlab.com/releases/patch-releases.xml", "category": ALERTS},
+    {"name": "Jenkins", "url": "https://www.jenkins.io/security/advisories/rss.xml", "category": ALERTS},
+    # Agregateur d'exploits : prend le relais d'Exploit-DB, dont le flux ne bouge plus qu'une fois par quinzaine.
+    {"name": "Sploitus", "url": "https://sploitus.com/rss", "category": ALERTS, "age_cap": True},
+    # OT / ICS : seul canal couvrant les automates, que les CERT generalistes ne traitent pas.
+    {"name": "CISA ICS Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml", "category": ALERTS},
     {"name": "CVEfeed", "url": "https://cvefeed.io/rssfeed/latest.xml", "category": ALERTS, "max": 5},
     {"name": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "category": ALERTS},
     {"name": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "category": ALERTS},
@@ -937,11 +997,15 @@ RSS_SOURCES = [
     # l'article ransomware est rattaché à cette rubrique et le doublon est écarté plus loin.
     {"name": "Help Net Security (Ransomware)", "url": "https://www.helpnetsecurity.com/tag/ransomware/feed/", "category": DARKWEB},
     {"name": "CyberScoop (Ransomware)", "url": "https://cyberscoop.com/tag/ransomware/feed/", "category": DARKWEB},
-    {"name": "The Record (Ransomware)", "url": "https://therecord.media/feed?tag=ransomware", "category": DARKWEB},
     {"name": "FrenchBreaches", "url": "https://frenchbreaches.com/feed.xml", "category": DARKWEB, "country": "FR"},
     {"name": "Databreaches.net", "url": "https://databreaches.net/feed/", "category": DARKWEB},
+    # Autorite francaise : sanctions RGPD et suites des fuites de donnees.
+    {"name": "CNIL", "url": "https://www.cnil.fr/fr/rss.xml", "category": DARKWEB, "country": "FR"},
+    # Ventes de bases revendiquees, souvent publiees avant toute confirmation : poids modere.
+    {"name": "Dark Web Informer", "url": "https://darkwebinformer.com/rss/", "category": DARKWEB},
     # Actualités & médias
     {"name": "BleepingComputer", "url": "https://www.bleepingcomputer.com/feed/", "category": NEWS},
+    {"name": "Cybersecurity Dive", "url": "https://www.cybersecuritydive.com/feeds/news/", "category": NEWS},
     {"name": "The Hacker News", "url": "https://feeds.feedburner.com/TheHackersNews", "category": NEWS},
     {"name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/", "category": NEWS},
     {"name": "The Record", "url": "https://therecord.media/feed", "category": NEWS},
@@ -955,39 +1019,56 @@ RSS_SOURCES = [
     {"name": "Wired Security", "url": "https://www.wired.com/feed/category/security/latest/rss", "category": NEWS},
     {"name": "CSO Online", "url": "https://www.csoonline.com/feed/", "category": NEWS},
     {"name": "UnderNews", "url": "https://www.undernews.fr/feed", "category": NEWS},
-    {"name": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux-rss/thematique/securite/rss.xml", "category": NEWS},
+    {"name": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux/cybersecurite-conformite.xml", "category": NEWS},
     {"name": "IT-Connect", "url": "https://www.it-connect.fr/feed/", "category": NEWS, "filter": True},
-    {"name": "01net", "url": "https://www.01net.com/rss/info/flux-rss/flux-toutes-les-actualites/", "category": NEWS, "filter": True, "max": 5},
-    {"name": "Clubic", "url": "https://www.clubic.com/feed/news.rss", "category": NEWS, "filter": True, "max": 5},
+    {"name": "01net", "url": "https://www.01net.com/feed/", "category": NEWS, "filter": True, "max": 5},
+    {"name": "Clubic", "url": "https://www.clubic.com/feed/rss", "category": NEWS, "filter": True, "max": 5},
     {"name": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "category": NEWS, "filter": True},
     {"name": "Next", "url": "https://next.ink/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "TechCrunch (Security)", "url": "https://techcrunch.com/tag/cybersecurity/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "Graham Cluley", "url": "https://www.grahamcluley.com/feed/", "category": NEWS},
     {"name": "Security.nl", "url": "https://www.security.nl/rss/headlines.xml", "category": NEWS, "country": "NL"},
-    {"name": "The Register", "url": "https://www.theregister.com/headlines.atom", "category": NEWS},
+    {"name": "The Register", "url": "https://api.theregister.com/api/v1/article?orderBy=published&site_id=2&remapper=rss&content=node", "category": NEWS},
     {"name": "Infosecurity Magazine", "url": "https://www.infosecurity-magazine.com/rss/news/", "category": NEWS},
     # Threat intelligence / recherche
-    {"name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": INTEL},
+    {"name": "Google Project Zero", "url": "https://projectzero.google/feed.xml", "category": INTEL},
+    {"name": "Google Security Blog", "url": "https://blog.google/innovation-and-ai/technology/safety-security/rss/", "category": INTEL},
+    {"name": "VirusTotal Blog", "url": "https://blog.virustotal.com/feeds/posts/default", "category": INTEL},
+    # SANS ISC : journaux d'incidents tenus par des praticiens, souvent la première source d'un IOC.
+    {"name": "SANS ISC", "url": "https://isc.sans.edu/rssfeed.xml", "category": INTEL},
+    # Mandiant a rejoint Google Cloud : mandiant.com redirige, le flux vit chez FeedBurner.
+    {"name": "Mandiant (GTIG)", "url": "https://feeds.feedburner.com/threatintelligence/pvexyqv7v0v", "category": INTEL},
+    {"name": "Kubernetes Blog", "url": "https://kubernetes.io/feed.xml", "category": INTEL},
+    {"name": "Malwarebytes Labs", "url": "https://www.malwarebytes.com/blog/feed/index.xml", "category": INTEL},
+    # Cloud, supply chain et réseau : trois angles que les éditeurs de sécurité ne couvrent pas.
+    {"name": "AWS Security Blog", "url": "https://aws.amazon.com/blogs/security/feed/", "category": INTEL},
+    # Secteur santé et plateforme macOS : deux angles absents, tous deux anglophones.
+    {"name": "HIPAA Journal", "url": "https://www.hipaajournal.com/feed/", "category": INTEL},
+    {"name": "Objective-See", "url": "https://objective-see.org/rss.xml", "category": INTEL},
+    {"name": "Snyk", "url": "https://snyk.io/blog/feed/", "category": INTEL},
+    {"name": "Cloudflare Blog", "url": "https://blog.cloudflare.com/rss/", "category": INTEL},
+    {"name": "Bitdefender Labs", "url": "https://www.bitdefender.com/nuxt/api/en-us/rss/labs/", "category": INTEL},
+    {"name": "Qualys", "url": "https://blog.qualys.com/feed", "category": INTEL},
     {"name": "Unit 42 (Palo Alto)", "url": "https://unit42.paloaltonetworks.com/feed/", "category": INTEL},
     {"name": "Securelist (Kaspersky)", "url": "https://securelist.com/feed/", "category": INTEL},
-    {"name": "Sekoia", "url": "https://blog.sekoia.io/feed/", "category": INTEL},
+    {"name": "Sekoia", "url": "https://www.sekoia.com/blog/rss.xml", "category": INTEL},
     {"name": "Check Point Research", "url": "https://research.checkpoint.com/feed/", "category": INTEL},
-    {"name": "Rapid7", "url": "https://www.rapid7.com/blog/rss/", "category": INTEL},
+    {"name": "Rapid7", "url": "https://www.rapid7.com/rss.xml", "category": INTEL},
     {"name": "Proofpoint", "url": "https://www.proofpoint.com/us/threat-insight-blog.xml", "category": INTEL},
-    {"name": "Group-IB", "url": "https://www.group-ib.com/blog/feed/", "category": INTEL},
+    {"name": "Group-IB", "url": "https://www.group-ib.com/feed/blogfeed/", "category": INTEL},
     {"name": "Wiz", "url": "https://www.wiz.io/feed/rss.xml", "category": INTEL},
     {"name": "ReversingLabs", "url": "https://www.reversinglabs.com/blog/rss.xml", "category": INTEL},
     {"name": "watchTowr Labs", "url": "https://labs.watchtowr.com/rss/", "category": INTEL},
-    {"name": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/feed/", "category": INTEL},
+    {"name": "WeLiveSecurity (ESET)", "url": "https://www.welivesecurity.com/en/rss/feed/", "category": INTEL},
     {"name": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/", "category": INTEL},
     {"name": "Microsoft Security", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "category": INTEL},
     {"name": "The DFIR Report", "url": "https://thedfirreport.com/feed/", "category": INTEL},
-    {"name": "SentinelOne Labs", "url": "https://labs.sentinelone.com/feed/", "category": INTEL},
+    {"name": "SentinelOne Labs", "url": "https://www.sentinelone.com/labs/feed/", "category": INTEL},
     {"name": "Elastic Security Labs", "url": "https://www.elastic.co/security-labs/rss/feed.xml", "category": INTEL},
     {"name": "Recorded Future", "url": "https://www.recordedfuture.com/feed/", "category": INTEL},
     {"name": "Red Canary", "url": "https://www.redcanary.com/blog/feed/", "category": INTEL},
     {"name": "GreyNoise", "url": "https://www.greynoise.io/blog/rss.xml", "category": INTEL},
-    {"name": "Citizen Lab", "url": "https://citizenlab.org/category/lab-news/feed/", "category": INTEL},
+    {"name": "Citizen Lab", "url": "https://citizenlab.ca/category/lab-news/feed/", "category": INTEL},
     {"name": "Google Cloud Threat Intelligence", "url": "https://cloudblog.withgoogle.com/topics/threat-intelligence/rss/", "category": INTEL},
     {"name": "CrowdStrike", "url": "https://www.crowdstrike.com/en-us/blog/feed", "category": INTEL},
     {"name": "Volexity", "url": "https://www.volexity.com/feed/", "category": INTEL},
@@ -1006,6 +1087,8 @@ RSS_SOURCES = [
     {"name": "Schneier on Security", "url": "https://www.schneier.com/feed/atom/", "category": BLOGS},
     {"name": "DoublePulsar", "url": "https://doublepulsar.com/feed", "category": BLOGS},
     {"name": "Pen Test Partners", "url": "https://www.pentestpartners.com/feed/", "category": BLOGS},
+    # infosec.exchange ne publie plus de flux par hashtag ; mastodon.social, si.
+    {"name": "Mastodon (infosec)", "url": "https://mastodon.social/tags/infosec.rss", "category": BLOGS, "filter": True, "strong": True, "max": 8},
 ]
 
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
@@ -1028,7 +1111,7 @@ SOURCE_LINKS[SOURCE_GITHUB] = "https://github.com/advisories"
 # Pondération des sources (idée reprise de CyberWatch) : 3 = autorité, 2 = recherche,
 # 1 = actualité, 0 = blog/OSINT. Le score final est ajusté dans collect_rss.
 SOURCE_WEIGHTS = {
-    "CERT-FR avis": 3, "CERT-FR alertes": 3, "CERT-EU": 3, "CISA Advisories": 3,
+    "CERT-FR avis": 3, "CERT-FR": 3, "CERT-EU": 3, "CISA Advisories": 3,
     "NCSC UK": 3, "JPCERT/CC": 3, "CCB Belgique": 3,
     "CERT/CC": 3,
     "NCSC-NL": 3, "CERT Polska": 3,
@@ -1036,14 +1119,19 @@ SOURCE_WEIGHTS = {
     "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,
     "FortiGuard PSIRT": 3, "Microsoft MSRC": 3, "Palo Alto Advisories": 3,
     "Cisco PSIRT": 3, "oss-security": 2, "Chrome Releases": 2,
+    "GitLab": 3, "Jenkins": 3, "Sploitus": 2,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
     "Ransomware.live (victims)": 2,
+    "Have I Been Pwned": 2, "EUVD (ENISA)": 3,
+    "NVD (éditeurs)": 2,
+    "Metasploit (CVE armées)": 3,
     "RansomLook": 2,
-    "CyberScoop (Ransomware)": 2, "The Record (Ransomware)": 2, "FrenchBreaches": 2,
-    "Databreaches.net": 2,
+    "CyberScoop (Ransomware)": 2, "FrenchBreaches": 2,
+    "Databreaches.net": 2, "CNIL": 1, "Dark Web Informer": 2,
     "GitHub Advisory": 3,
     "BleepingComputer": 1, "The Hacker News": 1, "Krebs on Security": 2,
+    "Cybersecurity Dive": 2,
     "The Record": 2, "SecurityWeek": 1, "Dark Reading": 2, "Help Net Security": 1,
     "CyberScoop": 2, "Security Affairs": 1, "Wired Security": 1,
     "CSO Online": 1, "UnderNews": 1,
@@ -1052,6 +1140,12 @@ SOURCE_WEIGHTS = {
     "Graham Cluley": 2, "Security.nl": 1, "The Register": 2,
     "Infosecurity Magazine": 1,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
+    "Google Security Blog": 2, "VirusTotal Blog": 2,
+    "SANS ISC": 3, "Bitdefender Labs": 2, "Qualys": 2,
+    "Mandiant (GTIG)": 3,
+    "CISA ICS Advisories": 3, "Kubernetes Blog": 2, "Malwarebytes Labs": 2,
+    "AWS Security Blog": 2, "Snyk": 2, "Cloudflare Blog": 2,
+    "HIPAA Journal": 2, "Objective-See": 2,
     "WeLiveSecurity (ESET)": 2, "Cisco Talos": 3, "Microsoft Security": 2,
     "The DFIR Report": 3, "SentinelOne Labs": 2,
     "Check Point Research": 3, "Rapid7": 2, "Proofpoint": 3,
@@ -1063,6 +1157,7 @@ SOURCE_WEIGHTS = {
     "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
     "Bellingcat": 1, "Risky Business": 2, "Troy Hunt": 2,
     "Schneier on Security": 1, "DoublePulsar": 2, "Pen Test Partners": 1,
+    "Mastodon (infosec)": 1,
 }
 
 
@@ -1084,6 +1179,8 @@ class Article:
     actors: tuple[str, ...] = ()                       # acteurs canoniques détectés
     epss: float | None = None                          # probabilité d'exploitation (0 à 1)
     cvss: float | None = None                          # gravité technique (0 à 10)
+    product: str | None = None                         # éditeur et produit visés (issu du CPE NVD)
+    corroborated: int = 0                              # sources distinctes ayant couvert la CVE
     also_covered: list[tuple[str, str]] = field(default_factory=list)  # (source, lien) de la même CVE
 
 
@@ -1139,12 +1236,19 @@ def open_db() -> sqlite3.Connection | None:
             );
             CREATE TABLE IF NOT EXISTS cves (
                 cve TEXT PRIMARY KEY, vue_le TEXT NOT NULL, epss REAL, cvss REAL, kev INTEGER DEFAULT 0,
-                ransomware INTEGER DEFAULT 0
+                ransomware INTEGER DEFAULT 0, produit TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_articles_date ON articles(vu_le);
             CREATE INDEX IF NOT EXISTS idx_cves_date ON cves(vue_le);
             CREATE TABLE IF NOT EXISTS meta (
                 cle TEXT PRIMARY KEY, valeur TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sources (
+                nom TEXT PRIMARY KEY, url TEXT, categorie TEXT, poids INTEGER,
+                dernier_ok TEXT, dernier_article TEXT,
+                erreurs_consecutives INTEGER DEFAULT 0,
+                type_erreur TEXT, derniere_erreur TEXT, total_articles INTEGER DEFAULT 0,
+                candidat TEXT
             );
             """
         )
@@ -1152,6 +1256,15 @@ def open_db() -> sqlite3.Connection | None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(cves)")}
         if "ransomware" not in columns:
             conn.execute("ALTER TABLE cves ADD COLUMN ransomware INTEGER DEFAULT 0")
+            conn.commit()
+        # Migration : le produit visé n'était pas stocké avant l'affichage des cibles.
+        if "produit" not in columns:
+            conn.execute("ALTER TABLE cves ADD COLUMN produit TEXT")
+            conn.commit()
+        # Migration : la colonne « candidat » n'existait pas avant la recherche d'adresse.
+        colonnes_sources = {row[1] for row in conn.execute("PRAGMA table_info(sources)")}
+        if "candidat" not in colonnes_sources:
+            conn.execute("ALTER TABLE sources ADD COLUMN candidat TEXT")
             conn.commit()
         return conn
     except sqlite3.Error as exc:
@@ -1182,12 +1295,197 @@ def meta_set(conn: sqlite3.Connection | None, cle: str, valeur: str) -> None:
         log.warning("Could not store %s: %s", cle, exc)
 
 
+def record_source_results(conn: sqlite3.Connection | None,
+                          resultats: dict[str, tuple[bool, str | None, int]]) -> None:
+    """Met à jour l'état de chaque source : une ligne par source, écrasée à chaque run.
+
+    `resultats` associe le nom de la source à (succès, message d'erreur, nombre d'articles).
+    On ne garde pas d'historique : seul l'état courant et le compteur d'échecs consécutifs
+    comptent, et le statut s'en déduit à la lecture.
+    """
+    if conn is None or not resultats:
+        return
+    maintenant = datetime.now(timezone.utc).isoformat()
+    try:
+        for nom, (ok, erreur, nb) in resultats.items():
+            source = next((s for s in RSS_SOURCES if s["name"] == nom), None)
+            url = source["url"] if source else ""
+            categorie = source["category"] if source else ""
+            poids = SOURCE_WEIGHTS.get(nom, 0)
+            ligne = conn.execute("SELECT erreurs_consecutives, total_articles, dernier_ok, "
+                                 "dernier_article FROM sources WHERE nom = ?", (nom,)).fetchone()
+            echecs, total, dernier_ok, dernier_article = ligne or (0, 0, None, None)
+            deplace = SOURCE_MOVED.get(nom)
+            if ok:
+                conn.execute(
+                    "INSERT INTO sources (nom, url, categorie, poids, dernier_ok, dernier_article,"
+                    " erreurs_consecutives, type_erreur, derniere_erreur, total_articles)"
+                    " VALUES (?,?,?,?,?,?,0,?,?,?)"
+                    " ON CONFLICT(nom) DO UPDATE SET url=excluded.url,"
+                    " categorie=excluded.categorie, poids=excluded.poids,"
+                    " dernier_ok=excluded.dernier_ok, erreurs_consecutives=0,"
+                    " type_erreur=excluded.type_erreur, derniere_erreur=excluded.derniere_erreur,"
+                    " total_articles=excluded.total_articles",
+                    (nom, url, categorie, poids, maintenant,
+                     maintenant if nb else dernier_article,
+                     "deplace" if deplace else None,
+                     f"moved to {deplace}" if deplace else None, total + nb))
+            else:
+                conn.execute(
+                    "INSERT INTO sources (nom, url, categorie, poids, dernier_ok, dernier_article,"
+                    " erreurs_consecutives, type_erreur, derniere_erreur, total_articles)"
+                    " VALUES (?,?,?,?,?,?,1,?,?,?)"
+                    " ON CONFLICT(nom) DO UPDATE SET url=excluded.url,"
+                    " categorie=excluded.categorie, poids=excluded.poids,"
+                    " erreurs_consecutives = sources.erreurs_consecutives + 1,"
+                    " type_erreur=excluded.type_erreur, derniere_erreur=excluded.derniere_erreur",
+                    (nom, url, categorie, poids, dernier_ok, dernier_article,
+                     _error_kind(erreur), (erreur or "")[:300], total))
+        conn.commit()
+    except sqlite3.Error as exc:
+        log.warning("Could not store source state: %s", exc)
+
+
+def prune_orphan_sources(conn: sqlite3.Connection | None) -> int:
+    """Supprime les lignes des sources qui ne sont plus dans le code.
+
+    Sans ça, une source renommée ou retirée garde sa ligne et continue d'apparaître dans le
+    bandeau des mois après sa disparition — c'est ce qui est arrivé à « CERT-FR alertes ».
+    """
+    if conn is None:
+        return 0
+    connues = tuple(s["name"] for s in RSS_SOURCES)
+    if not connues:
+        return 0
+    try:
+        avant = conn.execute("SELECT count(*) FROM sources").fetchone()[0]
+        conn.execute("DELETE FROM sources WHERE nom NOT IN (%s)" % ",".join("?" * len(connues)),
+                     connues)
+        conn.commit()
+        return max(0, avant - conn.execute("SELECT count(*) FROM sources").fetchone()[0])
+    except sqlite3.Error as exc:
+        log.warning("Could not prune orphan sources: %s", exc)
+        return 0
+
+
+def _error_kind(erreur: str | None) -> str:
+    """Classe un message d'erreur pour que la lecture n'ait pas à le réanalyser."""
+    texte = (erreur or "").lower()
+    if "301" in texte or "302" in texte:
+        return "deplace"
+    if "403" in texte or "429" in texte:
+        return "bloque"
+    if "404" in texte or "410" in texte:
+        return "disparu"
+    if "timeout" in texte or "timed out" in texte:
+        return "timeout"
+    if "vide" in texte or "empty" in texte:
+        return "vide"
+    return "autre"
+
+
+def source_statuses(conn: sqlite3.Connection | None, today: datetime) -> list[dict]:
+    """État déduit de chaque source : jamais stocké, donc jamais périmé.
+
+    Le silence se juge par rapport au rythme propre de la source : une publication mensuelle
+    n'est pas « muette » après vingt jours, alors qu'une source quotidienne l'est après trois.
+    """
+    if conn is None:
+        return []
+    try:
+        lignes = list(conn.execute(
+            "SELECT nom, url, dernier_ok, dernier_article, erreurs_consecutives,"
+            " type_erreur, derniere_erreur, total_articles, candidat FROM sources"))
+        cadences = {}
+        for source, dates in conn.execute(
+                "SELECT source, GROUP_CONCAT(DISTINCT substr(vu_le,1,10)) FROM articles"
+                " GROUP BY source"):
+            jours = sorted({d for d in (dates or "").split(",") if d})
+            if len(jours) >= 3:
+                ecarts = [(datetime.fromisoformat(b).date() - datetime.fromisoformat(a).date()).days
+                          for a, b in zip(jours, jours[1:])]
+                ecarts = [e for e in ecarts if e > 0]
+                if ecarts:
+                    cadences[source] = sorted(ecarts)[len(ecarts) // 2]
+    except sqlite3.Error:
+        return []
+
+    etats = []
+    for (nom, url, dernier_ok, dernier_article, echecs, type_erreur, erreur,
+         total, candidat) in lignes:
+        cadence = cadences.get(nom, 1)
+        seuil = max(7, cadence * 3)
+        age_article = None
+        if dernier_article:
+            try:
+                age_article = (today.date() - datetime.fromisoformat(dernier_article[:19]).date()).days
+            except ValueError:
+                age_article = None
+        # Un déplacement passe avant tout : le correctif est connu et tient en une ligne d'URL.
+        if type_erreur == "deplace":
+            statut = "moved"
+        elif echecs >= 3:
+            statut = "dead"
+        elif echecs >= 1 and type_erreur == "bloque":
+            statut = "blocked"
+        elif echecs >= 1:
+            statut = "flaky"
+        elif age_article is not None and age_article >= seuil:
+            statut = "quiet"
+        else:
+            statut = "active"
+        etats.append({
+            "nom": nom, "url": url, "statut": statut, "echecs": echecs,
+            "type_erreur": type_erreur, "erreur": erreur, "total": total,
+            "age_article": age_article, "cadence": cadence, "candidat": candidat,
+        })
+    ordre = {"dead": 0, "moved": 1, "blocked": 2, "flaky": 3, "quiet": 4, "active": 5}
+    return sorted(etats, key=lambda e: (ordre.get(e["statut"], 9), -(e["echecs"] or 0), e["nom"]))
+
+
+def feed_search_url(nom: str) -> str:
+    """Lien de recherche pour retrouver le flux d'une source que le bot n'a pas suivi.
+
+    La requête utile n'est pas « où est passé X » : un moteur répond mieux au nom exact de la
+    source suivi de « RSS feed ». Le suffixe entre parenthèses est retiré, car « Mandiant
+    (GTIG) » ne renvoie presque rien alors que « Mandiant » trouve la page en premier.
+    """
+    propre = re.sub(r"\s*\([^)]*\)\s*$", "", nom).strip() or nom
+    return "https://www.google.com/search?q=" + quote_plus(f'"{propre}" RSS feed')
+
+
+def source_label(etat: dict) -> str:
+    """Libellé court d'une source en panne, pour le bandeau.
+
+    Un déplacement affiche la nouvelle adresse : c'est le correctif, autant le donner tel quel.
+    """
+    nom = etat.get("nom", "?")
+    if etat.get("statut") == "moved":
+        cible = (etat.get("erreur") or "").replace("moved to ", "").strip()
+        return f"{nom} → {cible}" if cible else f"{nom} (moved)"
+    if etat.get("candidat"):
+        return f"{nom} (dead) → feed found: {etat['candidat']}"
+    echecs = etat.get("echecs") or 0
+    return f"{nom} ({etat.get('statut')}, {echecs} run{'s' if echecs > 1 else ''})"
+
+
 def load_cvss_cache(conn: sqlite3.Connection | None) -> dict[str, float]:
     """CVSS déjà connus : évite de ré-interroger le NVD (limité en débit)."""
     if conn is None:
         return {}
     try:
         return {c: float(s) for c, s in conn.execute("SELECT cve, cvss FROM cves WHERE cvss IS NOT NULL")}
+    except sqlite3.Error:
+        return {}
+
+
+def load_products(conn: sqlite3.Connection | None) -> dict[str, str]:
+    """Produits déjà connus : un CVE vu hier n'a pas besoin d'être réinterrogé pour son CPE."""
+    if conn is None:
+        return {}
+    try:
+        return {c: p for c, p in conn.execute(
+            "SELECT cve, produit FROM cves WHERE produit IS NOT NULL AND produit != ''")}
     except sqlite3.Error:
         return {}
 
@@ -1210,13 +1508,15 @@ def store_stats(conn: sqlite3.Connection | None, groups: dict[str, list[Article]
         ransom = {c for a in articles if a.source == SOURCE_KEV and "🔥" in a.tags
                   for c in extract_cves(a.title)}
         conn.executemany(
-            "INSERT INTO cves (cve, vue_le, epss, cvss, kev, ransomware) VALUES (?,?,?,?,?,?) "
+            "INSERT INTO cves (cve, vue_le, epss, cvss, kev, ransomware, produit)"
+            " VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT(cve) DO UPDATE SET "
             "epss=COALESCE(excluded.epss, cves.epss), cvss=COALESCE(excluded.cvss, cves.cvss), "
             "kev=MAX(COALESCE(cves.kev, 0), excluded.kev), "
-            "ransomware=MAX(COALESCE(cves.ransomware, 0), excluded.ransomware)",
-            [(c, today, i.get("epss"), i.get("cvss"), int(c in kev), int(c in ransom))
-             for c, i in infos.items()],
+            "ransomware=MAX(COALESCE(cves.ransomware, 0), excluded.ransomware), "
+            "produit=COALESCE(excluded.produit, cves.produit)",
+            [(c, today, i.get("epss"), i.get("cvss"), int(c in kev), int(c in ransom),
+              i.get("produit")) for c, i in infos.items()],
         )
         cutoff = (datetime.fromisoformat(today) - timedelta(days=DB_RETENTION_DAYS)).date().isoformat()
         conn.execute("DELETE FROM articles WHERE vu_le < ?", (cutoff,))
@@ -1245,8 +1545,19 @@ def sync_kev(conn: sqlite3.Connection | None, vulns: list[dict]) -> None:
         log.warning("KEV synchronization failed: %s", exc)
 
 
+def _oldest_cve_year(cves) -> int | None:
+    """Année de la plus ancienne CVE citée, lue dans l'identifiant (CVE-2022-1234 → 2022)."""
+    annees = []
+    for cve in cves:
+        morceaux = str(cve).split("-")
+        if len(morceaux) >= 2 and morceaux[1].isdigit():
+            annees.append(int(morceaux[1]))
+    return min(annees) if annees else None
+
+
 def kev_reminders(conn: sqlite3.Connection | None, session: requests.Session, today: str,
                   already_shown: set[str], n: int = REMINDERS_N, max_days: int = REMINDERS_DAYS,
+                  min_days: int = REMINDERS_MIN_DAYS,
                   epss_min: float = REMINDERS_EPSS_MIN) -> list[dict]:
     """CVE du KEV vues pour la 1re fois il y a 1 à `max_days` jours et toujours dangereuses.
 
@@ -1263,7 +1574,10 @@ def kev_reminders(conn: sqlite3.Connection | None, session: requests.Session, to
     except (sqlite3.Error, ValueError) as exc:
         log.warning("Reminders unavailable: %s", exc)
         return []
-    rows = [row for row in rows if row[0] not in already_shown]
+    # « Vue il y a deux jours » n'est pas un rappel : on ne retient que ce qui a déjà vieilli.
+    plancher = (now - timedelta(days=min_days)).isoformat()
+    rows = [row for row in rows
+            if row[0] not in already_shown and str(row[1]) <= plancher]
     if not rows:
         return []
     epss = fetch_epss(session, [cve for cve, _, _ in rows])
@@ -1370,17 +1684,155 @@ def analyse_badges(text: str, countries: tuple[str, ...] = ()) -> str:
     return " ".join(badges)
 
 
+def fetch_feed(session: requests.Session, url: str, reader_only: bool = False):
+    """Récupère un flux, avec une seconde tentative sous un agent de lecteur.
+
+    L'en-tête Accept reste local à cet appel pour ne pas modifier les réponses JSON (NVD, KEV,
+    GitHub). Certains sites refusent un client qui se déclare navigateur sans en être un : ils
+    répondent 403 ou coupent la connexion, mais acceptent un agent honnête. C'est la seule
+    différence qui débloque Schneier, NVISO et Hackmageddon.
+
+    `reader_only` saute la première tentative : utile quand elle a déjà rendu du HTML au lieu
+    d'un flux, cas où aucune exception n'est levée et où le repli ne se déclencherait pas.
+    """
+    if reader_only:
+        response = session.get(url, timeout=TIMEOUT,
+                               headers={"Accept": _FEED_ACCEPT, "User-Agent": FEED_READER_UA})
+        response.raise_for_status()
+        return response
+    try:
+        response = session.get(url, timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
+        response.raise_for_status()
+        return response
+    except requests.RequestException as exc:
+        try:
+            response = session.get(url, timeout=TIMEOUT,
+                                   headers={"Accept": _FEED_ACCEPT, "User-Agent": FEED_READER_UA})
+            response.raise_for_status()
+            return response
+        except requests.RequestException:
+            raise exc
+
+
+FEED_GUESS_PATHS = ("/feed/", "/feed", "/rss", "/rss.xml", "/feed.xml", "/atom.xml",
+                    "/index.xml", "/feeds/posts/default")
+
+
+def discover_feed(session: requests.Session, url: str) -> str | None:
+    """Cherche l'adresse actuelle d'un flux dont l'URL configurée ne répond plus.
+
+    Deux pistes, dans cet ordre : ce que la page d'accueil déclare en `<link rel="alternate">`,
+    puis les chemins convenus. Chaque candidat est réellement parsé — un flux qui ne rend pas
+    au moins trois entrées n'est pas une trouvaille, c'est une page d'erreur bien habillée.
+    """
+    parties = urlsplit(url)
+    base = f"{parties.scheme}://{parties.netloc}"
+    candidats: list[str] = []
+
+    # La page d'accueil : deux agents, car plusieurs sites refusent celui qui se dit navigateur.
+    page = None
+    for entetes in ({"Accept": "text/html,*/*;q=0.8"},
+                    {"Accept": "text/html,*/*;q=0.8", "User-Agent": FEED_READER_UA}):
+        try:
+            reponse_page = session.get(base + "/", timeout=15, headers=entetes)
+            if reponse_page.ok:
+                page = reponse_page
+                break
+        except requests.RequestException:
+            continue
+    if page is not None:
+        try:
+            texte = page.text
+            # follow_redirects déjà appliqué par requests : une page d'accueil déplacée chez un
+            # autre domaine nous donne directement la bonne base de résolution.
+            base = f"{urlsplit(page.url).scheme}://{urlsplit(page.url).netloc}"
+            for m in re.finditer(
+                    r'<link[^>]+type="application/(?:rss|atom)\+xml"[^>]+href="([^"]+)"',
+                    texte, re.I):
+                candidats.append(urljoin(base, m.group(1)))
+            for m in re.finditer(r'href="([^"]*(?:/feed|/rss|\.xml)[^"]*)"', texte, re.I):
+                if len(candidats) < 8:
+                    candidats.append(urljoin(base, m.group(1)))
+        except (AttributeError, ValueError):
+            pass
+
+    candidats += [base + chemin for chemin in FEED_GUESS_PATHS]
+
+    deja_vus = {url}
+    for candidat in candidats:
+        if candidat in deja_vus:
+            continue
+        deja_vus.add(candidat)
+        try:
+            reponse = fetch_feed(session, candidat)   # bénéficie du repli d'agent
+            flux = feedparser.parse(reponse.content)
+        except (requests.RequestException, AttributeError):
+            continue
+        if len(flux.entries) >= 3:
+            return candidat
+    return None
+
+
+def _redirect_target(source: dict, response) -> str | None:
+    """URL finale si le flux a changé d'adresse, None sinon.
+
+    requests suit les redirections sans rien dire : un flux qui déménage se contente de
+    répondre depuis sa nouvelle adresse et personne ne s'en aperçoit. On compare donc le
+    domaine et le chemin effectifs à ceux demandés.
+    """
+    origine = source.get("url") or ""
+    finale = getattr(response, "url", "") or ""
+    if not finale or finale == origine:
+        return None
+    demande, obtenu = urlsplit(origine), urlsplit(finale)
+    domaine = lambda u: u.netloc.lower().removeprefix("www.")
+    if domaine(demande) != domaine(obtenu):
+        return finale
+    if demande.path.rstrip("/") != obtenu.path.rstrip("/"):
+        return finale
+    return None
+
+
+def _entry_date(entry) -> datetime | None:
+    """Date d'une entrée, avec repli sur les formats non conformes.
+
+    Certains flux omettent le fuseau horaire — « Wed, 18 Nov 2026 14:30:33 » — ce que la norme
+    exige : feedparser rejette alors la date et l'entrée est ignorée en silence. C'est ainsi que
+    Group-IB publiait 373 articles que le bot n'a jamais vus.
+    """
+    brut = (entry.get("published_parsed") or entry.get("updated_parsed")
+            or entry.get("created_parsed"))
+    if brut:
+        try:
+            return datetime(*brut[:6], tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            pass
+    for cle in ("published", "updated", "created"):
+        texte = str(entry.get(cle) or "").strip()
+        if not texte:
+            continue
+        for modele in ("%a, %d %b %Y %H:%M:%S", "%a, %d %b %Y %H:%M",
+                       "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(texte[:25], modele).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+    return None
+
+
 def collect_rss(session: requests.Session, source: dict, since: datetime,
                 seen: set[str]) -> tuple[list[Article], str | None]:
     """Retourne (articles, erreur_ou_None)."""
     try:
-        # Accept propre aux flux : un lecteur RSS annonce les types qu'il sait lire. Cet en-tête
-        # reste local a cet appel pour ne pas modifier les reponses JSON (NVD, KEV, GitHub).
-        response = session.get(source["url"], timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
-        response.raise_for_status()
+        response = fetch_feed(session, source["url"])
     except requests.RequestException as exc:
         log.warning("%s: %s", source["name"], exc)
         return [], f"{source['name']}: {exc}"
+
+    deplace = _redirect_target(source, response)
+    if deplace:
+        SOURCE_MOVED[source["name"]] = deplace
+        log.warning("%s: flux déplacé vers %s", source["name"], deplace)
 
     try:
         feed = feedparser.parse(response.content)
@@ -1388,24 +1840,31 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
         log.warning("%s: unreadable feed (%s)", source["name"], exc)
         return [], f"{source['name']}: unreadable feed ({type(exc).__name__})"
 
-    if feed.bozo and not feed.entries:
-        # Sans ce message, une reponse anti-bot (200 mais pas du XML) faisait disparaitre la
-        # source du journal sans laisser aucune trace : panne invisible.
-        log.warning("%s: unreadable feed (no entries, bozo=%s)",
-                    source["name"], feed.get("bozo_exception"))
-        return [], f"{source['name']}: unreadable feed"
+    if not feed.entries:
+        # Aucune entrée : soit une page anti-robot servie au client qui se dit navigateur, soit
+        # un flux réellement vide. feedparser ne marque pas toujours `bozo` sur du HTML, donc on
+        # retente avec l'agent de lecteur dès qu'il n'y a rien, avant de conclure.
+        try:
+            seconde = fetch_feed(session, source["url"], reader_only=True)
+            feed_lecteur = feedparser.parse(seconde.content)
+        except Exception:  # noqa: BLE001 - un repli qui échoue ne doit pas tuer la source
+            feed_lecteur = None
+        if feed_lecteur is not None and feed_lecteur.entries:
+            log.info("%s: flux lisible avec l'agent de lecteur", source["name"])
+            feed = feed_lecteur
+        elif feed.bozo or not feed.get("version"):
+            # Pas de `version` = le contenu n'était pas un flux du tout (page HTML). Un flux
+            # réellement vide, lui, déclare sa version : il ne doit pas être signalé en erreur.
+            log.warning("%s: unreadable feed (no entries, bozo=%s, version=%r)",
+                        source["name"], feed.bozo, feed.get("version"))
+            return [], f"{source['name']}: unreadable feed"
 
     articles = []
     filtered = source.get("filter", False)
     skipped = 0
     for entry in feed.entries:
-        t = (entry.get("published_parsed") or entry.get("updated_parsed")
-             or entry.get("created_parsed"))
-        if not t:
-            continue
-        try:
-            date = datetime(*t[:6], tzinfo=timezone.utc)
-        except (TypeError, ValueError):
+        date = _entry_date(entry)
+        if date is None:
             continue
         if date < since:
             continue
@@ -1418,7 +1877,14 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             continue  # refuse javascript:, data:, etc. : le lien finit dans un href du mail
         if not IGNORE_SEEN and link in seen:
             continue
-        title = (entry.get("title") or "Untitled item").strip()[:300]
+        titre = (entry.get("title") or "").strip()
+        if not titre:
+            # Mastodon n'expose aucun titre : sans ce repli, ses billets arrivent en
+            # « Untitled item », illisibles et pourtant comptés dans le volume.
+            texte = str(entry.get("summary") or entry.get("description") or "")
+            titre = re.sub(r"<[^>]+>", " ", html.unescape(texte))
+            titre = re.sub(r"\s+", " ", titre).strip()
+        title = (titre or "Untitled item")[:300]
         if source.get("translate"):
             title = translate_german(title)
         text = _entry_text(entry)
@@ -1434,6 +1900,19 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             countries = (home,) + countries
         score, _ = compute_criticality(short)
         score += SOURCE_WEIGHTS.get(source["name"], 0)
+        # Le plafond d'âge n'est plus décidé ici : il dépend de la couverture du jour, donc il
+        # s'applique après le regroupement (voir apply_corroboration).
+        badges = analyse_badges(short, countries)
+        cves_trouvees = tuple(sorted(extract_cves(short)))
+        ttps_trouves = detect_ttps(short)
+        acteurs_trouves = detect_actors(short)
+        # Sources bavardes (Mastodon) : sans CVE, sans acteur, sans TTP et sans rançongiciel,
+        # le billet est une opinion ou une offre d'emploi, pas une information de veille.
+        if source.get("strong") and not (cves_trouvees or ttps_trouves or acteurs_trouves
+                                         or "🔥" in badges):
+            skipped += 1
+            log.info("  skipped (no strong signal) [%s]: %s", source["name"], title)
+            continue
         articles.append(
             Article(
                 source=source["name"],
@@ -1441,14 +1920,14 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
                 link=link,
                 date=date,
                 category=source["category"],
-                tags=analyse_badges(short, countries),
+                tags=badges,
                 score=score,
                 severity=severity_badge(score),
                 countries=countries,
                 stack=detect_stack(short),
-                cves=tuple(sorted(extract_cves(short))),
-                ttps=detect_ttps(short),
-                actors=detect_actors(short),
+                cves=cves_trouvees,
+                ttps=ttps_trouves,
+                actors=acteurs_trouves,
             )
         )
     # Les plus dangereux d'abord : si le plafond par source est atteint, on garde l'essentiel
@@ -1461,10 +1940,14 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
 def collect_source(source: dict, since: datetime, seen: set[str]) -> tuple[list[Article], str | None]:
     """Frontière de fiabilité : aucune exception inattendue ne sort d'une source."""
     try:
-        return collect_rss(thread_session(), source, since, seen)
+        articles, erreur = collect_rss(thread_session(), source, since, seen)
     except Exception as exc:  # noqa: BLE001
         log.exception("Source %s: unexpected failure", source["name"])
-        return [], f"{source['name']}: unexpected error ({type(exc).__name__})"
+        articles, erreur = [], f"{source['name']}: unexpected error ({type(exc).__name__})"
+    # Mémorisé ici car c'est le seul endroit qui connaît le nom de la source et son résultat.
+    # L'écriture SQLite se fait plus tard, hors des fils d'exécution.
+    SOURCE_RESULTS[source["name"]] = (erreur is None, erreur, len(articles))
+    return articles, erreur
 
 
 def check_feeds(session: requests.Session | None = None) -> int:
@@ -1474,8 +1957,7 @@ def check_feeds(session: requests.Session | None = None) -> int:
     problems: list[str] = []
     for source in RSS_SOURCES:
         try:
-            response = session.get(source["url"], timeout=TIMEOUT, headers={"Accept": _FEED_ACCEPT})
-            response.raise_for_status()
+            response = fetch_feed(session, source["url"])
             feed = feedparser.parse(response.content)
             if not feed.entries:
                 problems.append(source["name"])
@@ -1496,6 +1978,17 @@ def check_feeds(session: requests.Session | None = None) -> int:
             problems.append(source["name"])
             print(f"KO   {source['name']:<32} {exc}")
     print(f"\n{ok}/{len(RSS_SOURCES)} feeds OK; problems: {', '.join(problems) or 'none'}")
+    # L'état enregistré par les runs précédents : un test isolé ne dit rien de la durée d'une panne.
+    conn = open_db()
+    etats = source_statuses(conn, datetime.now(timezone.utc))
+    if conn is not None:
+        conn.close()
+    en_panne = [e for e in etats if e["statut"] in ("dead", "moved", "blocked", "quiet")]
+    if en_panne:
+        print("\nÉtat enregistré par les runs précédents :")
+        for e in en_panne[:20]:
+            duree = f", muet depuis {e['age_article']} j" if e["age_article"] is not None else ""
+            print(f"  {e['statut']:<9} {e['nom']:<32} {e['echecs']} échec(s){duree}")
     return 0 if not problems else 1
 
 
@@ -1642,6 +2135,277 @@ def collect_ransomware_victims(session: requests.Session, since: datetime):
     return articles, None
 
 
+# Suffixes de domaine utilises pour rattacher une fuite a un pays de l'empreinte.
+_TLD_COUNTRY = {
+    "fr": "FR", "be": "BE", "nl": "NL", "lu": "LU", "de": "DE", "uk": "GB",
+    "it": "IT", "es": "ES", "pl": "PL", "se": "SE", "dk": "DK", "fi": "FI",
+    "at": "AT", "ch": "CH", "cz": "CZ", "pt": "PT", "gr": "GR", "ie": "IE",
+    "lt": "LT", "lv": "LV", "ee": "EE", "hu": "HU", "ro": "RO", "sk": "SK",
+    "si": "SI", "hr": "HR", "bg": "BG", "no": "NO",
+}
+
+
+def tld_country(domain: str) -> str:
+    """Pays deduit du suffixe de domaine, uniquement s'il appartient a l'empreinte IBM."""
+    domaine = (domain or "").strip().lower().rstrip(".")
+    if "." not in domaine:
+        return ""
+    code = _TLD_COUNTRY.get(domaine.rsplit(".", 1)[-1], "")
+    return code if code in COUNTRIES else ""
+
+
+def collect_hibp(session: requests.Session, since: datetime):
+    """Fuites publiees par Have I Been Pwned : nom, volume et date d'ajout.
+
+    L'endpoint /breaches est public (pas de cle) ; il est filtre sur AddedDate pour ne garder
+    que les fuites nouvelles depuis la derniere collecte.
+    """
+    url = "https://haveibeenpwned.com/api/v3/breaches"
+    try:
+        response = session.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
+        response.raise_for_status()
+        fuites = response.json()
+        if not isinstance(fuites, list):
+            raise ValueError("invalid payload")
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        log.warning("%s: %s", SOURCE_HIBP, exc)
+        return [], f"{SOURCE_HIBP}: {exc}"
+
+    articles = []
+    for f in fuites:
+        if not isinstance(f, dict):
+            continue
+        # Les listes de spam et les fuites fabriquees ne sont pas des incidents.
+        if f.get("IsFabricated") or f.get("IsRetired") or f.get("IsSpamList"):
+            continue
+        try:
+            ajout = datetime.strptime(str(f.get("AddedDate") or "")[:10], "%Y-%m-%d")
+            ajout = ajout.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if ajout < since:
+            continue
+        nom = str(f.get("Name") or f.get("Title") or "").strip()
+        if not nom:
+            continue
+        comptes = int(f.get("PwnCount") or 0)
+        code = tld_country(f.get("Domain") or "")
+        score = 6 + (1 if comptes >= 100_000 else 0) + (1 if comptes >= 1_000_000 else 0)
+        if code:
+            score += 3 if code in HOME_COUNTRIES else 1
+        donnees = ", ".join(f.get("DataClasses") or [])[:120]
+        articles.append(Article(
+            source=SOURCE_HIBP,
+            title=f"{nom} — {comptes:,} accounts exposed".replace(",", " ")[:300],
+            link=f"https://haveibeenpwned.com/PwnedWebsites#{nom}",
+            date=ajout,
+            category=DARKWEB,
+            detail=" · ".join(x for x in (f"Domain: {f.get('Domain')}" if f.get("Domain") else "",
+                                          f"Data: {donnees}" if donnees else "") if x),
+            tags="🔥" if f.get("IsSensitive") else "",
+            score=score,
+            severity=severity_badge(score),
+            countries=(code,) if code else (),
+        ))
+    log.info("%s: %d new", SOURCE_HIBP, len(articles))
+    return articles, None
+
+
+def collect_euvd(session: requests.Session, since: datetime):
+    """Vulnerabilites europeennes exploitees (EUVD KEV, ENISA).
+
+    /api/kev/dump rend le catalogue complet (1 783 entrees) avec cveId, euvdId, dateAdded et les
+    sources : c'est l'equivalent europeen du KEV americain. On ne garde que les ajouts recents,
+    comme pour CISA KEV. L'endpoint /api/lastvulnerabilities, lui, ne rend que quatre avis et
+    beaucoup de severite moyenne : il n'apportait presque rien.
+    """
+    url = "https://euvdservices.enisa.europa.eu/api/kev/dump"
+    try:
+        response = session.get(url, timeout=TIMEOUT, headers={"Accept": "application/json"})
+        response.raise_for_status()
+        entrees = response.json()
+        if isinstance(entrees, dict):
+            entrees = entrees.get("items") or entrees.get("data") or []
+        if not isinstance(entrees, list):
+            raise ValueError("invalid payload")
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        log.warning("%s: %s", SOURCE_EUVD, exc)
+        return [], f"{SOURCE_EUVD}: {exc}"
+
+    articles = []
+    # Le catalogue europeen reprend en grande partie celui de la CISA : ne garder que les CVE que
+    # le KEV americain ne liste pas, sinon le mail affiche deux fois la meme faille.
+    deja_connues = {str(v.get("cveID") or "").upper() for v in KEV_VULNS if isinstance(v, dict)}
+    for v in entrees:
+        if not isinstance(v, dict):
+            continue
+        try:
+            date = datetime.strptime(str(v.get("dateAdded") or "")[:10], "%Y-%m-%d")
+            date = date.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if date < since:
+            continue
+        cve = str(v.get("cveId") or "").strip()
+        euvd = str(v.get("euvdId") or "").strip()
+        if not cve and not euvd:
+            continue
+        if cve and cve.upper() in deja_connues:
+            continue
+        etiquette = cve or euvd
+        # Titre neutre volontairement : le bonus fixe ci-dessous remplace la detection textuelle,
+        # exactement comme pour CISA KEV, pour ne pas declencher l'alerte immediate a chaque ajout.
+        titre = f"{etiquette} — EUVD KEV (exploitation confirmée)"
+        score, _ = compute_criticality(titre)
+        score += 5
+        sources = v.get("sources")
+        articles.append(Article(
+            source=SOURCE_EUVD,
+            title=titre[:300],
+            link=f"https://euvd.enisa.europa.eu/vulnerability/{euvd or cve}",
+            date=date,
+            category=ALERTS,
+            detail=" · ".join(x for x in (
+                f"EUVD {euvd}" if euvd else "",
+                f"Sources : {', '.join(map(str, sources))[:120]}" if isinstance(sources, list) and sources else "",
+            ) if x),
+            score=score,
+            severity=severity_badge(score),
+            cves=(cve,) if cve else (),
+        ))
+    log.info("%s: %d new", SOURCE_EUVD, len(articles))
+    return articles, None
+
+
+# Editeurs interroges directement chez le NVD : equipements de bordure, logiciels d'entreprise et
+# la gamme Proton, que l'employeur soit concerne ou non.
+NVD_VENDORS = (
+    "ivanti", "citrix", "netscaler", "sonicwall", "fortinet", "palo alto", "big-ip",
+    "veeam", "juniper", "vmware", "moveit",
+    # Produits suivis comme cibles mais sans flux : NVD est leur seul canal rapide.
+    "confluence", "jira", "okta", "adobe", "oracle", "manageengine",
+    "proton", "yahoo", "ibm", "qradar", "aspera", "avigilon",
+)
+NVD_VENDOR_MAX = 3    # par editeur, pour qu'un seul produit ne mange pas la rubrique
+NVD_MAX = 30          # total par collecte
+
+
+def collect_nvd_vendors(session: requests.Session, since: datetime):
+    """CVE recentes des editeurs cibles, interrogees une par une chez le NVD.
+
+    Le KEV ne liste qu'apres coup une exploitation confirmee, et les flux PSIRT ne couvrent que
+    les editeurs qui publient un RSS : une requete par mot-cle editeur capte les nouveautes avant.
+    """
+    fin = datetime.now(timezone.utc)
+    debut = since
+    fmt = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S.000")
+    entetes = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
+    pause = 0.7 if NVD_API_KEY else 6.5
+    articles: list[Article] = []
+    erreurs: list[str] = []
+
+    for editeur in NVD_VENDORS:
+        if len(articles) >= NVD_MAX:
+            break
+        # Sans keywordExactMatch, le NVD cherche les mots separement : « exchange server »
+        # ramenait tout CVE contenant a la fois « exchange » et « server ».
+        exact = "&keywordExactMatch" if " " in editeur else ""
+        url = (f"{NVD_URL}?keywordSearch={quote(editeur)}{exact}"
+               f"&pubStartDate={fmt(debut)}&pubEndDate={fmt(fin)}&resultsPerPage=50")
+        try:
+            response = session.get(url, timeout=30, headers=entetes)
+            response.raise_for_status()
+            data = response.json()
+        except (requests.RequestException, ValueError, AttributeError) as exc:
+            erreurs.append(f"{editeur}: {exc}")
+            continue
+        gardes = 0
+        for item in data.get("vulnerabilities", []):
+            if gardes >= NVD_VENDOR_MAX or len(articles) >= NVD_MAX:
+                break
+            cve = item.get("cve") if isinstance(item, dict) else None
+            if not isinstance(cve, dict):
+                continue
+            ident = str(cve.get("id") or "")
+            if not ident:
+                continue
+            description = ""
+            for d in cve.get("descriptions") or []:
+                if isinstance(d, dict) and d.get("lang") == "en":
+                    description = str(d.get("value") or "")
+                    break
+            try:
+                date = datetime.strptime(str(cve.get("published") or "")[:19], "%Y-%m-%dT%H:%M:%S")
+                date = date.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
+            if date < since:
+                continue
+            # La recherche NVD par mot-clé est floue : « oracle » ramenait un greffon WordPress
+            # citant Oracle dans sa description. Le CPE tranche.
+            produit_cpe = extract_product(cve)
+            if produit_cpe and editeur.split()[0] not in produit_cpe:
+                continue
+            texte = f"{ident} {description}"
+            score, _ = compute_criticality(texte)
+            articles.append(Article(
+                source=SOURCE_NVD,
+                title=f"{ident}: {description[:170]}"[:300],
+                link=f"https://nvd.nist.gov/vuln/detail/{ident}",
+                date=date,
+                category=ALERTS,
+                # « Éditeur interrogé » laissait croire que la CVE appartenait à cet éditeur :
+                # la recherche NVD par mot-clé est floue, seuls les CPE vérifiés le prouvent.
+                detail=(f"NVD search: {editeur} · product: {produit_cpe}"
+                        if produit_cpe else f"NVD search: {editeur} (product not yet analysed)"),
+                score=score,
+                severity=severity_badge(score),
+                cves=(ident,),
+            ))
+            gardes += 1
+        # 50 requetes par 30 s avec cle, 5 sans : cette pause couvre les deux cas.
+        time.sleep(pause)
+
+    if erreurs and not articles:
+        return [], f"{SOURCE_NVD}: {'; '.join(erreurs[:2])}"
+    log.info("%s: %d new", SOURCE_NVD, len(articles))
+    return articles, None
+
+
+def victim_key(title: str) -> str:
+    """Cle de rapprochement entre les deux sources dark web.
+
+    L'API ecrit « Astino Berhad — revendique par qilin », RansomLook « Astino Berhad By qilin » :
+    deux libelles, un seul evenement, et surtout deux liens differents que le dedoublonnage par
+    URL ne peut pas rapprocher.
+    """
+    t = title.lower()
+    for sep in (" — revendiqué par ", " by "):
+        if sep in t:
+            t = t.split(sep)[0]
+            break
+    t = re.sub(r"^\[disclosed\]\s*", "", t)
+    t = re.sub(r"[^a-z0-9@. ]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def dedupe_ransomware(results: list) -> list:
+    """Ecarte les victimes RansomLook deja publiees par l'API Ransomware.live.
+
+    La version de l'API est conservee : elle porte le pays, le secteur et un score plus eleve.
+    Les victimes propres a RansomLook sont evidemment gardees.
+    """
+    connues = {victim_key(a.title) for articles, _ in results for a in articles
+               if a.source == SOURCE_RANSOMWARE_API}
+    if not connues:
+        return results
+    sortie = []
+    for articles, err in results:
+        sortie.append(([a for a in articles
+                        if not (a.source == "RansomLook" and victim_key(a.title) in connues)], err))
+    return sortie
+
+
 def collect_cisa_kev(session: requests.Session, seen: set[str]):
     url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
     try:
@@ -1713,12 +2477,146 @@ def collect_cisa_kev(session: requests.Session, seen: set[str]):
     return articles[:MAX_KEV], None
 
 
+def _read_metasploit_cache() -> set[str]:
+    try:
+        data = json.loads(Path(METASPLOIT_CACHE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(data, dict):
+        return set()
+    cves = data.get("cves", [])
+    return {str(c).upper() for c in cves} if isinstance(cves, list) else set()
+
+
+def _write_metasploit_cache(cves: set[str]) -> None:
+    _write_json_atomic(
+        METASPLOIT_CACHE_FILE,
+        {"fetched_at": datetime.now(timezone.utc).isoformat(),
+         "count": len(cves), "cves": sorted(cves)},
+    )
+
+
+def collect_metasploit_cves(session: requests.Session):
+    """Signale les CVE qui viennent de recevoir un module Metasploit.
+
+    La liste de la source est cumulative (plus de trois mille CVE depuis 1999) : l'information
+    n'est pas son contenu mais sa différence avec la veille précédente. Un module public marque
+    le passage du simple PoC au stade armé, souvent avant l'inscription au KEV.
+    """
+    try:
+        response = session.get(METASPLOIT_URL, timeout=TIMEOUT)
+        response.raise_for_status()
+        texte = response.text
+    except requests.RequestException as exc:
+        log.warning("%s: %s", SOURCE_METASPLOIT, exc)
+        return [], f"{SOURCE_METASPLOIT}: {exc}"
+
+    actuels = {m.group(0).upper() for m in RE_CVE.finditer(texte)}
+    if not actuels:
+        return [], f"{SOURCE_METASPLOIT}: liste vide"
+
+    connus = _read_metasploit_cache()
+    # Premier passage : on enregistre la base sans publier trois mille lignes d'un coup.
+    if not connus:
+        _write_metasploit_cache(actuels)
+        log.info("%s: base de %d CVE enregistrée", SOURCE_METASPLOIT, len(actuels))
+        return [], None
+
+    nouveaux = sorted(actuels - connus)
+    # Union : si la source tronque sa liste un jour, on ne perd pas la mémoire des CVE connues.
+    _write_metasploit_cache(connus | actuels)
+
+    articles = []
+    for cve in nouveaux[:METASPLOIT_MAX]:
+        titre = f"{cve}: Metasploit module published"
+        score, _ = compute_criticality(titre)
+        score += 6  # module armé : même bonus qu'une exploitation constatée
+        articles.append(
+            Article(
+                source=SOURCE_METASPLOIT,
+                title=titre,
+                link=f"https://nvd.nist.gov/vuln/detail/{cve}",
+                date=datetime.now(timezone.utc),
+                category=ALERTS,
+                detail="Public exploit module added to Metasploit",
+                score=score,
+                severity=severity_badge(score),
+                cves=(cve,),
+            )
+        )
+    log.info("%s: %d new", SOURCE_METASPLOIT, len(articles))
+    return articles, None
+
+
+def fetch_mirage_stats(session: requests.Session) -> dict[str, tuple[int, int]]:
+    """Tentatives observées par les pots de miel OffSeq, indexées par CVE.
+
+    Ce n'est pas une source d'articles mais un enrichissement : le KEV dit qu'une faille est
+    exploitée, ce flux dit à quel point elle est scannée. Renvoie un dictionnaire vide en cas
+    d'échec, sans jamais faire tomber la collecte.
+    """
+    try:
+        response = session.get(MIRAGE_URL, timeout=20)
+        response.raise_for_status()
+        lignes = response.text.splitlines()
+    except requests.RequestException as exc:
+        log.warning("Mirage feed: %s", exc)
+        return {}
+
+    stats: dict[str, tuple[int, int]] = {}
+    for ligne in lignes[1:]:
+        colonnes = ligne.split(",")
+        if len(colonnes) < 5:
+            continue
+        cve = colonnes[0].strip().upper()
+        if not cve.startswith("CVE-"):
+            continue
+        try:
+            tentatives, sources = int(colonnes[3]), int(colonnes[4])
+        except ValueError:
+            continue
+        stats[cve] = (tentatives, sources)
+    log.info("Mirage feed: %d CVE enrichies", len(stats))
+    return stats
+
+
+def enrich_with_mirage(groups: dict[str, list[Article]],
+                       stats: dict[str, tuple[int, int]]) -> int:
+    """Ajoute la télémétrie OffSeq au détail des articles citant une CVE concernée.
+
+    Retourne le nombre d'articles enrichis. Aucune ligne n'est ajoutée au rapport : seule la
+    ligne de détail existante gagne le contexte.
+    """
+    if not stats:
+        return 0
+    enrichis = 0
+    for articles in groups.values():
+        for article in articles:
+            for cve in article.cves:
+                info = stats.get(cve.upper())
+                if not info:
+                    continue
+                tentatives, sources = info
+                texte = f"{tentatives:,} attempts · {sources} sources (OffSeq honeypots)"
+                article.detail = f"{article.detail} · {texte}" if article.detail else texte
+                enrichis += 1
+                break
+    if enrichis:
+        log.info("Mirage feed: %d article(s) enrichi(s)", enrichis)
+    return enrichis
+
+
 def collect_github_advisories(session: requests.Session, since: datetime):
     """GitHub Advisory Database (API) : complète les flux RSS pour l'open source."""
     url = "https://api.github.com/advisories"
+    # Sans jeton, l'API plafonne a 60 requetes par heure et par IP — or les runners GitHub Actions
+    # partagent leurs plages d'adresses : la source disparaissait alors dans le bandeau d'erreurs.
+    entetes = {"Accept": "application/vnd.github+json"}
+    if GITHUB_TOKEN:
+        entetes["Authorization"] = f"Bearer {GITHUB_TOKEN}"
     try:
         r = session.get(url, params={"per_page": 100, "sort": "published",
-                                     "direction": "desc"}, timeout=TIMEOUT)
+                                     "direction": "desc"}, timeout=TIMEOUT, headers=entetes)
         r.raise_for_status()
         data = r.json()
     except (requests.RequestException, ValueError) as exc:
@@ -1897,40 +2795,60 @@ def extract_cvss(cve_json: dict) -> float | None:
     return None
 
 
-def fetch_cvss(session: requests.Session, cve: str) -> tuple[float | None, bool]:
-    """Retourne (score_ou_None, limite_de_debit_atteinte)."""
+def extract_product(cve_json: dict) -> str | None:
+    """Éditeur et produit visés, lus dans le premier CPE du NVD.
+
+    Un titre Sploitus dit « CVE-2023-25157 exploit » et rien d'autre ; la réponse NVD contient
+    déjà « cpe:2.3:a:apache:ofbiz:… », donc l'information ne coûte aucune requête de plus.
+    """
+    for configuration in cve_json.get("configurations") or []:
+        for node in configuration.get("nodes") or []:
+            for match in node.get("cpeMatch") or []:
+                morceaux = str(match.get("criteria") or "").split(":")
+                if len(morceaux) > 4:
+                    editeur, produit = morceaux[3], morceaux[4]
+                    if editeur not in ("", "*", "-") and produit not in ("", "*", "-"):
+                        return f"{editeur} {produit}".replace("_", " ").strip()
+    return None
+
+
+def fetch_cvss(session: requests.Session, cve: str) -> tuple[float | None, bool, str | None]:
+    """Retourne (score, limite_de_debit_atteinte, produit_ou_None)."""
     headers = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
     try:
         r = session.get(NVD_URL, params={"cveId": cve}, headers=headers, timeout=20)
     except requests.RequestException as exc:
         log.warning("NVD %s: %s", cve, exc)
-        return None, False
+        return None, False, None
     if r.status_code == 403:
         log.warning("NVD 403 for %s: missing/invalid API key or access denied (%s)",
                     cve, r.text[:160])
-        return None, True
+        return None, True, None
     if r.status_code == 429:
         log.warning("NVD: rate limit reached, stopping CVSS lookups for this run")
-        return None, True
+        return None, True, None
     if r.status_code != 200:
-        return None, False
+        return None, False, None
     try:
         vulns = r.json().get("vulnerabilities", [])
     except ValueError:
-        return None, False
+        return None, False, None
     if not vulns:
-        return None, False  # CVE trop récente, pas encore analysée par le NVD
-    return extract_cvss(vulns[0].get("cve", {})), False
+        return None, False, None  # CVE trop récente, pas encore analysée par le NVD
+    cve_json = vulns[0].get("cve", {})
+    return extract_cvss(cve_json), False, extract_product(cve_json)
 
 
 def enrich(session: requests.Session, groups: dict[str, list[Article]],
-           cvss_cache: dict[str, float]) -> dict[str, dict]:
-    """Ajoute EPSS/CVSS aux articles qui citent des CVE, puis recalcule score et pastille."""
+           cvss_cache: dict[str, float],
+           product_cache: dict[str, str] | None = None) -> dict[str, dict]:
+    """Ajoute EPSS/CVSS/produit aux articles qui citent des CVE, puis recalcule score et pastille."""
     articles = [a for v in groups.values() for a in v if a.cves]
     if not articles:
         return {}
     all_cves = sorted({c for a in articles for c in a.cves})
     epss = fetch_epss(session, all_cves)
+    produits = dict(product_cache or {})
 
     # CVSS : CVE des articles les plus dangereux d'abord, en respectant la limite de débit du NVD
     order: list[str] = []
@@ -1944,9 +2862,11 @@ def enrich(session: requests.Session, groups: dict[str, list[Article]],
     for i, c in enumerate(to_fetch):
         if i:
             time.sleep(pause)
-        score, rate_limited = fetch_cvss(session, c)
+        score, rate_limited, produit = fetch_cvss(session, c)
         if score is not None:
             cvss[c] = score
+        if produit:
+            produits[c] = produit
         if rate_limited:
             break
     log.info("CVSS: %d/%d CVE filled (cache included)", len(cvss), len(all_cves))
@@ -1956,13 +2876,15 @@ def enrich(session: requests.Session, groups: dict[str, list[Article]],
         c_values = [cvss[c] for c in a.cves if c in cvss]
         a.epss = max(e_values) if e_values else None
         a.cvss = max(c_values) if c_values else None
+        a.product = next((produits[c] for c in a.cves if c in produits), None)
         a.score += enrichment_bonus(a.epss, a.cvss)
         if a.source == SOURCE_KEV and KEV_ALWAYS_CRITICAL:
             a.score = max(a.score, CRITICAL_THRESHOLD)
         a.severity = severity_badge(a.score)
     for items in groups.values():
         items.sort(key=lambda a: (a.score, a.date), reverse=True)
-    return {c: {"epss": epss.get(c), "cvss": cvss.get(c)} for c in all_cves}
+    return {c: {"epss": epss.get(c), "cvss": cvss.get(c), "produit": produits.get(c)}
+            for c in all_cves}
 
 
 # --- Rendu -------------------------------------------------------------------
@@ -2117,10 +3039,17 @@ def _badges(a: Article) -> str:
 
 def _metrics(a: Article) -> str:
     parts = []
+    # Le produit visé d'abord : « apache ofbiz » vaut mieux qu'un simple numéro de CVE.
+    if a.product:
+        parts.append(a.product)
     if a.epss is not None:
         parts.append("EPSS <1 %" if a.epss < 0.01 else f"EPSS {a.epss * 100:.0f} %")
     if a.cvss is not None:
         parts.append(f"CVSS {a.cvss:.1f}")
+    # Couverture inhabituelle : plusieurs rédactions en parlent, ce qui explique un score haut
+    # même sur une faille ancienne.
+    if a.corroborated >= CORROBORATION_MIN:
+        parts.append(f"{a.corroborated} sources")
     return " · ".join(parts)
 
 
@@ -2164,13 +3093,94 @@ def _cve_links_text(cve: str) -> str:
     )
 
 
+def silent_sources(conn: sqlite3.Connection | None, today: datetime,
+                   days: int = 14, exclure: set[str] | None = None) -> list[tuple[str, int]]:
+    """Sources qui ont deja publie mais se taisent depuis `days` jours.
+
+    Un flux peut repondre parfaitement et ne plus rien contenir : un PSIRT qui change d'URL, un
+    blog qui s'arrete. Le bandeau d'erreurs ne les voit pas, puisque techniquement tout va bien.
+
+    Seules les sources ayant au moins un article en base sont examinees : une source ajoutee
+    recemment serait signalee a tort. `exclure` ecarte celles qui ont justement publie ou
+    echoue pendant ce run — la base n'est ecrite qu'apres le rendu, donc sans cela une source
+    qui vient de livrer cinq articles serait annoncee muette.
+    """
+    if conn is None:
+        return []
+    try:
+        rows = list(conn.execute("SELECT source, MAX(vu_le) FROM articles GROUP BY source"))
+    except sqlite3.Error:
+        return []
+    # Une source retirée du code garde ses articles en base : sans ce filtre, elle resterait
+    # signalée « muette » des mois après sa suppression.
+    connues = {s["name"] for s in RSS_SOURCES}
+    exclues = exclure or set()
+    muettes = []
+    for source, dernier in rows:
+        if not source or not dernier or source not in connues or source in exclues:
+            continue
+        try:
+            age = (today.date() - datetime.fromisoformat(str(dernier)[:10]).date()).days
+        except (TypeError, ValueError):
+            continue
+        if age >= days:
+            muettes.append((str(source), age))
+    return sorted(muettes, key=lambda kv: -kv[1])
+
+
+def inject_section_articles(groups: dict[str, list[Article]],
+                            displayed: dict[str, list[Article]],
+                            per_country: int = 4, per_product: int = 4,
+                            budget: int = 24) -> dict[str, list[Article]]:
+    """Compromis entre rubriques riches et liens valides.
+
+    Les sections pays et stack renvoient vers l'entree complete, situee dans la liste ci-dessous.
+    Pour qu'un article cite ne mene jamais dans le vide, on le fait remonter dans la liste
+    affichee — mais avec un budget borne, sinon on contournerait le plafond general.
+
+    Seules les sources deja presentes dans la liste sont enrichies : ajouter une source inedite
+    casserait l'ordre des rubriques.
+    """
+    affiches = {a.link for items in displayed.values() for a in items}
+    ranked = sorted((a for v in groups.values() for a in v),
+                    key=lambda a: (a.score, a.date), reverse=True)
+
+    candidats: list[Article] = []
+    par_pays: dict[str, int] = {}
+    par_produit: dict[str, int] = {}
+    for a in ranked:
+        utile = False
+        for code in a.countries:
+            if code in COUNTRIES and par_pays.get(code, 0) < per_country:
+                par_pays[code] = par_pays.get(code, 0) + 1
+                utile = True
+        for produit in a.stack:
+            if par_produit.get(produit, 0) < per_product:
+                par_produit[produit] = par_produit.get(produit, 0) + 1
+                utile = True
+        if utile and a.link not in affiches and a.source in displayed:
+            candidats.append(a)
+            affiches.add(a.link)
+
+    for a in candidats[:budget]:
+        displayed[a.source].append(a)
+    return displayed
+
+
 def render_html(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
-                *, max_articles: int | None = None) -> str:
+                *, max_articles: int | None = None,
+                silent: list[tuple[str, int]] | None = None,
+                fresh: set[str] | None = None,
+                source_states: list[dict] | None = None,
+                moved_states: list[dict] | None = None) -> str:
     e = html.escape
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
+    # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
+    # la limite d'un budget de 24, pour ne jamais citer un lien absent de la liste affichee.
+    displayed = inject_section_articles(groups, displayed)
     shown = sum(len(v) for v in displayed.values())
     parts = [
         '<html lang="en"><head><meta charset="utf-8">'
@@ -2213,9 +3223,44 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             + e(" ; ".join(errors))
             + "</p>"
         )
+    if silent:
+        parts.append(
+            '<p style="background:#fff3cd;padding:8px;border-radius:4px">🔇 Silent sources '
+            '(no article for 14+ days, feed still answering): '
+            + e(", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
+            + "</p>"
+        )
+    if source_states:
+        # État durable : ces sources échouent run après run, ce n'est plus un incident isolé.
+        morceaux = []
+        for s in source_states[:10]:
+            libelle = e(source_label(s))
+            # Le bot n'a pas su retrouver l'adresse : on donne la recherche à faire à la main.
+            if s.get("statut") == "dead" and not s.get("candidat"):
+                lien = e(feed_search_url(s.get("nom", "")), quote=True)
+                morceaux.append(f'{libelle} <a href="{lien}" target="_blank" '
+                                f'rel="noopener noreferrer">search</a>')
+            else:
+                morceaux.append(libelle)
+        parts.append(
+            '<p style="background:#f8d7da;padding:8px;border-radius:4px">🚫 Broken sources '
+            '(consecutive failures, not a one-off): '
+            + ", ".join(morceaux)
+            + "</p>"
+        )
+    if moved_states:
+        # Ces flux répondent parfaitement, mais depuis une autre adresse : rien de cassé.
+        parts.append(
+            '<p style="background:#fff3cd;padding:8px;border-radius:4px">↪ Moved feeds '
+            '(still answering, from a new address): '
+            + e(", ".join(source_label(s) for s in moved_states[:10]))
+            + "</p>"
+        )
 
     parts.append('<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:24px">🚨 Top priorities today</h2>')
-    top = top_priorities(groups)
+    # Les trois sections ci-dessous ne doivent citer que des articles reellement affiches plus bas :
+    # elles renvoient vers leur entree complete, qui n'existerait pas si le plafond l'avait coupee.
+    top = top_priorities(displayed)
     if top:
         parts.append("<ul>")
         for a in top:
@@ -2279,11 +3324,12 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
                 for src, link in a.also_covered) + "</small>") if a.also_covered else ""
             parts.append(
                 f'<li style="margin-bottom:10px">{tag}'
+                f'{"🆕 " if a.link in (fresh or ()) else ""}'
                 f'<a href="{e(a.link, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.title)}</a>{metr}{detail}{qual_html}{also}</li>'
             )
         parts.append("</ul>")
 
-    stack_blocks = stack_sections(groups)
+    stack_blocks = stack_sections(displayed)
     parts.append(
         '<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:28px">'
         f"🧰 Your stack ({e(' · '.join(STACK_PRODUCTS))})</h2>"
@@ -2304,7 +3350,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             "window.</p>"
         )
 
-    blocks = country_sections(groups)
+    blocks = country_sections(displayed)
     parts.append(
         '<h2 style="color:#222;border-bottom:1px solid #ccc;margin-top:28px">'
         "🌍 European focus (IBM footprint)</h2>"
@@ -2367,9 +3413,16 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
 def render_text(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
-                *, max_articles: int | None = None) -> str:
+                *, max_articles: int | None = None,
+                silent: list[tuple[str, int]] | None = None,
+                fresh: set[str] | None = None,
+                source_states: list[dict] | None = None,
+                moved_states: list[dict] | None = None) -> str:
     c = compute_totals(groups)
     displayed = limit_for_email(groups, max_articles)
+    # Compromis : les rubriques pays et stack font remonter jusqu'a quatre articles chacune, dans
+    # la limite d'un budget de 24, pour ne jamais citer un lien absent de la liste affichee.
+    displayed = inject_section_articles(groups, displayed)
     shown = sum(len(v) for v in displayed.values())
     lines = [
         f"{c['total']} item(s) over {WINDOW_HOURS} h · "
@@ -2391,7 +3444,22 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
                      "the lowest-priority ones are hidden to avoid truncation.)")
     if errors:
         lines.append("Sources in error: " + " ; ".join(errors))
-    top = top_priorities(groups)
+    if silent:
+        lines.append("Silent sources (no article for 14+ days, feed still answering): "
+                     + ", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
+    if source_states:
+        morceaux = []
+        for s in source_states[:10]:
+            libelle = source_label(s)
+            if s.get("statut") == "dead" and not s.get("candidat"):
+                libelle += f" [search: {feed_search_url(s.get('nom', ''))}]"
+            morceaux.append(libelle)
+        lines.append("Broken sources (consecutive failures, not a one-off): "
+                     + ", ".join(morceaux))
+    if moved_states:
+        lines.append("Moved feeds (still answering, from a new address): "
+                     + ", ".join(source_label(s) for s in moved_states[:10]))
+    top = top_priorities(displayed)
     if top:
         lines.append("\n##### TOP PRIORITIES TODAY #####")
         for a in top:
@@ -2419,13 +3487,13 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
             badges, m = _badges(a), _metrics(a)
             qual = _qualifiers(a)
             lines.append(
-                f"- {badges + ' ' if badges else ''}{a.title}{f' [{m}]' if m else ''}"
+                f"- {badges + ' ' if badges else ''}{'🆕 ' if a.link in (fresh or ()) else ''}{a.title}{f' [{m}]' if m else ''}"
                 f"{f' [{qual}]' if qual else ''}\n  {a.link}"
                 + (f"\n  Also covered by: {', '.join(f'{src} ({link})' for src, link in a.also_covered)}"
                    if a.also_covered else "")
             )
 
-    stack_blocks = stack_sections(groups)
+    stack_blocks = stack_sections(displayed)
     lines.append("\n##### YOUR STACK (" + " · ".join(STACK_PRODUCTS).upper() + ") #####")
     if stack_blocks:
         for name, items in stack_blocks:
@@ -2435,7 +3503,7 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
     else:
         lines.append("No security item about your stack in this window.")
 
-    blocks = country_sections(groups)
+    blocks = country_sections(displayed)
     lines.append("\n##### EUROPEAN FOCUS (IBM FOOTPRINT) #####")
     if blocks:
         for code, items in blocks:
@@ -2572,6 +3640,39 @@ def group_articles(results) -> tuple[dict[str, list[Article]], list[str]]:
     return groups, new_links
 
 
+def apply_corroboration(groups: dict[str, list[Article]],
+                        cve_sources: dict[str, set[str]]) -> int:
+    """Arbitre entre l'âge d'une faille et sa couverture du jour.
+
+    Trois sources indépendantes qui reparlent de la même CVE le même jour signalent une
+    exploitation active, même si la faille date de quatre ans. Inversement, un PoC isolé pour
+    une faille ancienne n'a pas l'urgence d'une KEV du jour : il plafonne à orange.
+
+    Retourne le nombre d'articles dont le score a changé.
+    """
+    plafonnees = {s["name"] for s in RSS_SOURCES if s.get("age_cap")}
+    modifiees = 0
+    for articles in groups.values():
+        for a in articles:
+            sources: set[str] = set()
+            for c in a.cves:
+                sources |= cve_sources.get(c, set())
+            a.corroborated = len(sources)
+            avant = a.score
+            if a.corroborated >= CORROBORATION_MIN:
+                a.score += CORROBORATION_BONUS      # couverture large : le signal est réel
+            elif a.source in plafonnees:
+                annee = _oldest_cve_year(a.cves)
+                if annee and datetime.now(timezone.utc).year - annee >= 2:
+                    a.score = min(a.score, CRITICAL_THRESHOLD - 1)
+            if a.score != avant:
+                a.severity = severity_badge(a.score)
+                modifiees += 1
+    for items in groups.values():
+        items.sort(key=lambda a: (a.score, a.date), reverse=True)
+    return modifiees
+
+
 def main() -> int:
     config = validate_config()  # échoue tout de suite si un secret manque
     now = datetime.now(TZ)
@@ -2606,20 +3707,54 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             log.exception("%s: unexpected failure", SOURCE_RANSOMWARE_API)
             results.append(([], f"{SOURCE_RANSOMWARE_API}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_hibp(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_HIBP)
+            results.append(([], f"{SOURCE_HIBP}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_euvd(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_EUVD)
+            results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_nvd_vendors(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_NVD)
+            results.append(([], f"{SOURCE_NVD}: unexpected error ({type(exc).__name__})"))
+        try:
+            results.append(collect_metasploit_cves(session))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_METASPLOIT)
+            results.append(([], f"{SOURCE_METASPLOIT}: unexpected error ({type(exc).__name__})"))
         with ThreadPoolExecutor(max_workers=8) as pool:
             results += list(pool.map(
                 lambda s: collect_source(s, since, seen), RSS_SOURCES))
 
+        results = dedupe_ransomware(results)
         errors = [err for _, err in results if err]
         groups, new_links = group_articles(results)
+        # Télémétrie des pots de miel : enrichit le détail des CVE déjà présentes, sans ligne de plus.
+        enrich_with_mirage(groups, fetch_mirage_stats(session))
+        # Le rapport glissant repete un article deux jours : ce marqueur distingue les nouveautes.
+        deja_vus = set(previous)
+        fresh = {lien for lien in new_links if lien not in deja_vus}
         sync_kev(conn, KEV_VULNS)
 
         # Enrichissements optionnels : une panne ne doit jamais empêcher l'envoi du rapport
         infos: dict[str, dict] = {}
         try:
-            infos = enrich(session, groups, load_cvss_cache(conn))
+            infos = enrich(session, groups, load_cvss_cache(conn), load_products(conn))
         except Exception as exc:  # noqa: BLE001
             log.warning("EPSS/CVSS enrichment skipped: %s", exc)
+        # Couverture croisée calculée sur les résultats bruts : un article replié par la
+        # déduplication compte quand même comme une source ayant parlé de la CVE.
+        cve_sources: dict[str, set[str]] = {}
+        for articles_bruts, _ in results:
+            for a_brut in articles_bruts:
+                for c_brut in a_brut.cves:
+                    cve_sources.setdefault(c_brut, set()).add(a_brut.source)
+        apply_corroboration(groups, cve_sources)
         groups = dict(sorted(groups.items(), key=lambda kv: CATEGORY_ORDER.index(kv[1][0].category)))
 
         reminders: list[dict] = []
@@ -2653,10 +3788,49 @@ def main() -> int:
             subject += f" · ⚡ {totals['campaigns']} campaign(s)"
 
         email_limit = MAX_EMAIL_ARTICLES
+        # Un flux peut repondre et ne plus rien publier : invisible dans le bandeau d'erreurs.
+        # On ecarte celles qui viennent de livrer ou d'echouer : la base n'est ecrite qu'apres.
+        actives_ou_en_erreur = {nom for nom, (ok, erreur, nb) in SOURCE_RESULTS.items()
+                               if erreur or nb}
+        silent = silent_sources(conn, now, exclure=actives_ou_en_erreur)
+        if silent:
+            log.info("Silent sources: %s", ", ".join(f"{n} ({a}d)" for n, a in silent[:6]))
+        # État durable des sources : on écrit d'abord, puis on lit pour le bandeau.
+        record_source_results(conn, SOURCE_RESULTS)
+        if prune_orphan_sources(conn):
+            log.info("Sources retirées du code : lignes d'état supprimées")
+        etats_sources = source_statuses(conn, now)
+        # Une source morte a peut-être seulement déménagé : on cherche son adresse actuelle,
+        # au plus deux par run pour ne pas transformer le rapport en robot d'exploration.
+        for etat in [e for e in etats_sources if e["statut"] == "dead" and not e["candidat"]][:2]:
+            trouve = discover_feed(session, etat["url"])
+            if not trouve:
+                continue
+            etat["candidat"] = trouve
+            if conn is not None:
+                try:
+                    conn.execute("UPDATE sources SET candidat = ? WHERE nom = ?",
+                                 (trouve, etat["nom"]))
+                    conn.commit()
+                except sqlite3.Error as exc:
+                    log.warning("Could not store feed candidate: %s", exc)
+            log.info("%s : nouvelle adresse trouvée %s", etat["nom"], trouve)
+        # Un flux déplacé n'est pas cassé : il répond, simplement ailleurs. Deux lignes distinctes,
+        # sinon un simple changement d'adresse passe pour une panne.
+        mouvements = [e for e in etats_sources if e["statut"] == "moved"]
+        en_panne = [e for e in etats_sources if e["statut"] in ("dead", "blocked")]
+        if en_panne:
+            log.info("Sources en panne : %s", ", ".join(
+                f"{e['nom']} ({e['statut']}, {e['echecs']})" for e in en_panne[:6]))
+        if mouvements:
+            log.info("Flux déplacés : %s", ", ".join(
+                f"{e['nom']} → {e['candidat'] or e['erreur']}" for e in mouvements[:6]))
         html_report = render_html(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit)
+                                  max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne, moved_states=mouvements)
         text_report = render_text(groups, errors, stats, reminders, vendors,
-                                  max_articles=email_limit)
+                                  max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne, moved_states=mouvements)
         html_size = len(html_report.encode("utf-8"))
         text_size = len(text_report.encode("utf-8"))
         # Si le message reste trop lourd, réduire par petits paliers (-10 %) plutôt que de moitié :
@@ -2667,9 +3841,11 @@ def main() -> int:
             log.warning("Report of %d KB: reducing to %d items",
                         (html_size + text_size) // 1000, email_limit)
             html_report = render_html(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit)
+                                      max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne, moved_states=mouvements)
             text_report = render_text(groups, errors, stats, reminders, vendors,
-                                      max_articles=email_limit)
+                                      max_articles=email_limit, silent=silent, fresh=fresh,
+                                  source_states=en_panne, moved_states=mouvements)
             html_size = len(html_report.encode("utf-8"))
             text_size = len(text_report.encode("utf-8"))
         log.info("Report size: %.1f KB HTML + %.1f KB text (%d items max)",
@@ -2864,17 +4040,45 @@ def main_alert() -> int:
     except Exception as exc:  # noqa: BLE001
         log.exception("%s: unexpected failure", SOURCE_RANSOMWARE_API)
         results.append(([], f"{SOURCE_RANSOMWARE_API}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_hibp(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_HIBP)
+        results.append(([], f"{SOURCE_HIBP}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_euvd(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_EUVD)
+        results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_nvd_vendors(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_NVD)
+        results.append(([], f"{SOURCE_NVD}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_metasploit_cves(session))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_METASPLOIT)
+        results.append(([], f"{SOURCE_METASPLOIT}: unexpected error ({type(exc).__name__})"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         results += list(pool.map(lambda s: collect_source(s, since, set()), RSS_SOURCES))
 
+    results = dedupe_ransomware(results)
     errors = [err for _, err in results if err]
     groups, _ = group_articles(results)
+    enrich_with_mirage(groups, fetch_mirage_stats(session))
+    # L'alerte tourne aussi toutes les trois heures : ses passages alimentent l'état des sources,
+    # ce qui rend le compteur d'échecs consécutifs bien plus réactif que le seul run quotidien.
+    _conn_etat = open_db()
+    record_source_results(_conn_etat, SOURCE_RESULTS)
+    if _conn_etat is not None:
+        _conn_etat.close()
     # Le rapport quotidien enregistre ; ici on ne fait que lire le cache CVSS.
     candidates = preselect(groups, known)
     if candidates:
         conn = open_db()
         try:
-            enrich(session, candidates, load_cvss_cache(conn))
+            enrich(session, candidates, load_cvss_cache(conn), load_products(conn))
         except Exception as exc:  # noqa: BLE001 - sans EPSS/CVSS on garde le score de base
             log.warning("EPSS/CVSS enrichment skipped: %s", exc)
         finally:

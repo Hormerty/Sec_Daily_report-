@@ -115,7 +115,8 @@ plain_art = v.Article(source="X", title="Random flaw", link="https://e/plain",
 assert v.choose_alerts({"X": [stack_art]}, set()) == [stack_art]   # seuil abaissé
 assert v.choose_alerts({"X": [plain_art]}, set()) == []            # seuil normal
 html_stack = v.render_html({"X": [stack_art]}, [])
-assert "Your stack (Box · Slack · Teams · Outlook · Microsoft 365)" in html_stack
+# L'en-tete se derive de la liste des produits : ajouter une stack ne doit pas casser ce test.
+assert "Your stack (" + " · ".join(v.STACK_PRODUCTS) + ")" in html_stack, html_stack[:400]
 assert "Box Drive flaw exploited" in html_stack
 print("Stack watch (section + alert threshold): OK")
 
@@ -172,7 +173,7 @@ finally:
 assert erreur is None, erreur
 assert len(articles) == 1, len(articles)
 assert articles[0].link == "https://example.com/article/1", articles[0].link
-assert articles[0].title == "Untitled item", articles[0].title
+assert articles[0].title == "CVE-2024-1234 actively exploited in the wild", articles[0].title
 assert articles[0].score >= 8, articles[0].score
 assert "CVE-2024-1234" in articles[0].cves
 print("Fake RSS collection: OK")
@@ -243,7 +244,7 @@ try:
     assert len(articles_ignores) == 0, len(articles_ignores)
 finally:
     v.feedparser.parse = ancien_parse
-print("Rolling 48 h window: OK")
+print("Rolling 27 h window: OK")
 
 # --- Plafond d'e-mail --------------------------------------------------------
 def article(source: str, rang: int, tags: str = "", cves=()) -> v.Article:
@@ -360,8 +361,13 @@ with mock.patch.multiple(
     collect_cisa_kev=lambda session, seen: ([kev_article], None),
     collect_github_advisories=lambda session, since: ([], None),
     collect_ransomware_victims=lambda *a, **k: ([], None),
+    collect_hibp=lambda *a, **k: ([], None),
+    collect_euvd=lambda *a, **k: ([], None),
+    collect_nvd_vendors=lambda *a, **k: ([], None),
+    collect_metasploit_cves=lambda *a, **k: ([], None),
+    fetch_mirage_stats=lambda *a, **k: {},
     collect_source=lambda source, since, seen: ([], None),
-    enrich=lambda session, groups, cache: {},
+    enrich=lambda session, groups, cache, *a, **k: {},
     sync_kev=lambda conn, vulns: None,
     kev_reminders=lambda *a, **k: [],
     top_vendors=lambda *a, **k: [],
@@ -387,8 +393,13 @@ with mock.patch.multiple(
     collect_cisa_kev=lambda session, seen: ([], "CISA KEV : boom"),
     collect_github_advisories=lambda session, since: ([], "GitHub Advisory : boom"),
     collect_ransomware_victims=lambda *a, **k: ([], "Ransomware.live (victims) : boom"),
+    collect_hibp=lambda *a, **k: ([], "Have I Been Pwned : boom"),
+    collect_euvd=lambda *a, **k: ([], "EUVD (ENISA) : boom"),
+    collect_nvd_vendors=lambda *a, **k: ([], "NVD (éditeurs) : boom"),
+    collect_metasploit_cves=lambda *a, **k: ([], "Metasploit (CVE armées) : boom"),
+    fetch_mirage_stats=lambda *a, **k: {},
     collect_source=lambda source, since, seen: ([], f"{source['name']} : boom"),
-    enrich=lambda session, groups, cache: {},
+    enrich=lambda session, groups, cache, *a, **k: {},
     sync_kev=lambda conn, vulns: None,
     kev_reminders=lambda *a, **k: [],
     top_vendors=lambda *a, **k: [],
@@ -552,6 +563,11 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_cisa_kev=lambda *a, **k: ([], None),
             collect_github_advisories=lambda *a, **k: ([], None),
             collect_ransomware_victims=lambda *a, **k: ([], None),
+            collect_hibp=lambda *a, **k: ([], None),
+            collect_euvd=lambda *a, **k: ([], None),
+            collect_nvd_vendors=lambda *a, **k: ([], None),
+            collect_metasploit_cves=lambda *a, **k: ([], None),
+            fetch_mirage_stats=lambda *a, **k: {},
             collect_source=lambda *a, **k: ([], None),
         ):
             code = v.main()
@@ -594,6 +610,601 @@ for titre in ("CISA confirms PHP2Shell vulnerabilities now exploited in attacks"
     score, _ = v.compute_criticality(titre)
     assert score >= v.IMPORTANT_THRESHOLD, (titre, score)
 print("Exploitation badge: OK")
+
+
+# --- Déduplication dark web ---------------------------------------------------
+# L'API et RansomLook publient la même victime sous deux libellés et deux liens : le doublon
+# doit disparaître, mais les victimes propres à RansomLook doivent survivre.
+_maintenant = datetime.now(timezone.utc)
+
+
+def _art(source, titre):
+    return v.Article(source=source, title=titre, link="https://x/" + str(abs(hash(titre))),
+                     date=_maintenant, category=v.DARKWEB)
+
+
+_resultats = [
+    ([_art(v.SOURCE_RANSOMWARE_API, "Astino Berhad — revendiqué par qilin")], None),
+    ([_art("RansomLook", "Astino Berhad By qilin"),
+      _art("RansomLook", "[disclosed]Namibian Force By leakeddata"),
+      _art("RansomLook", "Translogwest By akira")], None),
+]
+_titres = [a.title for arts, _ in v.dedupe_ransomware(_resultats) for a in arts]
+assert any("revendiqué" in t for t in _titres), _titres          # la version API est gardée
+assert "Astino Berhad By qilin" not in _titres, _titres          # le doublon RansomLook disparaît
+assert any("Namibian" in t for t in _titres), _titres            # les uniques survivent
+assert any("Translogwest" in t for t in _titres), _titres
+assert v.victim_key("X Y By z") == v.victim_key("X Y — revendiqué par z")
+print("Ransomware dedup: OK")
+
+
+# --- Jeton GitHub pour l'API Advisory -----------------------------------------
+# Sans jeton, l'API plafonne a 60 requetes/heure et par IP, quota partage par tous les runners :
+# la collecte echouait en silence. Le jeton doit partir en en-tete des qu'il est present.
+_capture = {}
+
+
+class _RepAdvisory:
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return []
+
+
+class _SessAdvisory:
+    def get(self, url, params=None, timeout=None, headers=None):
+        _capture["h"] = headers or {}
+        return _RepAdvisory()
+
+
+_jeton_initial = v.GITHUB_TOKEN
+try:
+    v.GITHUB_TOKEN = "ghs_test"
+    v.collect_github_advisories(_SessAdvisory(), datetime.now(timezone.utc) - timedelta(days=1))
+    assert _capture["h"].get("Authorization") == "Bearer ghs_test", _capture
+    v.GITHUB_TOKEN = ""
+    v.collect_github_advisories(_SessAdvisory(), datetime.now(timezone.utc) - timedelta(days=1))
+    assert "Authorization" not in _capture["h"], _capture
+finally:
+    v.GITHUB_TOKEN = _jeton_initial
+print("Advisory token: OK")
+
+
+# --- Sources muettes ----------------------------------------------------------
+# Un flux peut repondre et ne plus rien publier : le bandeau d'erreurs ne le voit pas.
+assert v.silent_sources(None, datetime.now(timezone.utc)) == []
+
+with tempfile.TemporaryDirectory() as _dossier:
+    _ancienne_db = v.DB_FILE
+    v.DB_FILE = str(Path(_dossier) / "silent.db")
+    _conn = v.open_db()
+    # Deux vraies sources : le calcul ignore desormais les noms absents du code, pour ne pas
+    # signaler indefiniment une source retiree.
+    _nom_recent = v.RSS_SOURCES[0]["name"]
+    _nom_muet = v.RSS_SOURCES[1]["name"]
+    try:
+        _auj = datetime.now(timezone.utc)
+        for lien, jour, source in (
+            ("https://s/1", _auj.date().isoformat(), _nom_recent),
+            ("https://s/2", (_auj - timedelta(days=20)).date().isoformat(), _nom_muet),
+            ("https://s/3", (_auj - timedelta(days=20)).date().isoformat(), "Source Disparue"),
+        ):
+            _conn.execute(
+                "INSERT INTO articles (lien, vu_le, source, categorie, titre) VALUES (?,?,?,?,?)",
+                (lien, jour, source, "News", "t"))
+        _conn.commit()
+        _muettes = v.silent_sources(_conn, _auj)
+        assert (_nom_muet, 20) in _muettes, _muettes
+        assert all(nom != _nom_recent for nom, _ in _muettes), _muettes
+        assert all(nom != "Source Disparue" for nom, _ in _muettes), _muettes
+        _html = v.render_html({}, [], None, [], [], max_articles=10, silent=_muettes)
+        assert "Silent sources" in _html and _nom_muet in _html
+    finally:
+        _conn.close()
+        v.DB_FILE = _ancienne_db
+print("Silent sources: OK")
+
+
+# --- Modules Metasploit : seule la nouveauté compte ---------------------------
+# La source est une liste cumulative de plus de trois mille CVE : publier son contenu serait
+# absurde, et un premier passage sans cache ne doit rien sortir.
+with tempfile.TemporaryDirectory() as _dossier_ms:
+    _ancien_cache_ms = v.METASPLOIT_CACHE_FILE
+    v.METASPLOIT_CACHE_FILE = str(Path(_dossier_ms) / "metasploit.json")
+
+    class _RepMs:
+        text = "CVE-2026-1111\nCVE-2026-2222\n"
+
+        def raise_for_status(self):
+            pass
+
+    class _SessMs:
+        def get(self, url, timeout=None):
+            return _RepMs()
+
+    try:
+        assert v.collect_metasploit_cves(_SessMs())[0] == []   # première base : rien
+        assert v.collect_metasploit_cves(_SessMs())[0] == []   # rien de neuf
+        _RepMs.text = "CVE-2026-1111\nCVE-2026-2222\nCVE-2026-3333\n"
+        _arts_ms = v.collect_metasploit_cves(_SessMs())[0]
+        assert len(_arts_ms) == 1, _arts_ms
+        assert _arts_ms[0].cves == ("CVE-2026-3333",), _arts_ms[0].cves
+        _RepMs.text = "CVE-2026-1111\n"                         # source tronquée
+        v.collect_metasploit_cves(_SessMs())
+        assert len(v._read_metasploit_cache()) == 3, v._read_metasploit_cache()
+    finally:
+        v.METASPLOIT_CACHE_FILE = _ancien_cache_ms
+print("Metasploit diff: OK")
+
+
+# --- Enrichissement par télémétrie OffSeq -------------------------------------
+# Aucune ligne ajoutée : seule la ligne de détail d'un article déjà présent gagne le contexte.
+class _RepMirage:
+    text = ("cve,name,kev,attempts,sources,first_seen,last_seen\n"
+            "CVE-2017-9841,PHPUnit eval-stdin RCE,true,67314,235,2026-11-14,2026-11-20\n")
+
+    def raise_for_status(self):
+        pass
+
+
+class _SessMirage:
+    def get(self, url, timeout=None):
+        return _RepMirage()
+
+
+_mirage = v.fetch_mirage_stats(_SessMirage())
+assert _mirage.get("CVE-2017-9841") == (67314, 235), _mirage
+_now_mirage = datetime.now(timezone.utc)
+_art_m = v.Article(source="S", title="CVE-2017-9841: PHPUnit", link="https://m/1",
+                   date=_now_mirage, category=v.ALERTS, detail="eval-stdin RCE",
+                   cves=("CVE-2017-9841",))
+_art_n = v.Article(source="S", title="Autre sujet", link="https://m/2",
+                   date=_now_mirage, category=v.NEWS)
+_groupes_m = {"S": [_art_m, _art_n]}
+assert v.enrich_with_mirage(_groupes_m, _mirage) == 1
+assert "67,314 attempts" in _art_m.detail and "235 sources" in _art_m.detail, _art_m.detail
+assert not _art_n.detail
+assert v.enrich_with_mirage(_groupes_m, {}) == 0
+print("Mirage enrichment: OK")
+
+
+# --- État des sources : mémoire des pannes ------------------------------------
+# Le statut se déduit des échecs consécutifs, il n'est jamais stocké : une source qui repart
+# doit repasser en « active » d'elle-même.
+with tempfile.TemporaryDirectory() as _d_src:
+    _ancienne_db_src = v.DB_FILE
+    v.DB_FILE = str(Path(_d_src) / "sources.db")
+    _conn_src = v.open_db()
+    try:
+        _now_src = datetime.now(timezone.utc)
+        v.record_source_results(_conn_src, {"Saine": (True, None, 4)})
+        for _ in range(3):
+            v.record_source_results(_conn_src, {"Morte": (False, "404 Client Error", 0)})
+        v.record_source_results(_conn_src, {"Deplacee": (False, "301 Moved Permanently", 0)})
+        v.record_source_results(_conn_src, {"Bloquee": (False, "403 Client Error", 0)})
+        _etats_src = {e["nom"]: e for e in v.source_statuses(_conn_src, _now_src)}
+        assert _etats_src["Saine"]["statut"] == "active", _etats_src["Saine"]
+        assert _etats_src["Morte"]["statut"] == "dead", _etats_src["Morte"]
+        assert _etats_src["Deplacee"]["statut"] == "moved", _etats_src["Deplacee"]
+        assert _etats_src["Bloquee"]["statut"] == "blocked", _etats_src["Bloquee"]
+        v.record_source_results(_conn_src, {"Morte": (True, None, 1)})
+        _apres = {e["nom"]: e for e in v.source_statuses(_conn_src, _now_src)}
+        assert _apres["Morte"]["statut"] == "active", _apres["Morte"]
+        assert _apres["Morte"]["echecs"] == 0, _apres["Morte"]
+    finally:
+        _conn_src.close()
+        v.DB_FILE = _ancienne_db_src
+print("Source state: OK")
+
+
+# --- Détection des flux déplacés ----------------------------------------------
+# requests suit les redirections sans rien dire : un flux qui déménage répond normalement
+# depuis sa nouvelle adresse, et personne ne s'en aperçoit.
+class _RepRedir:
+    def __init__(self, url):
+        self.url = url
+
+
+_src_redir = {"name": "T", "url": "https://blog.exemple.fr/feed/"}
+assert v._redirect_target(_src_redir, _RepRedir("https://blog.exemple.fr/feed/")) is None
+assert v._redirect_target(_src_redir, _RepRedir("https://blog.exemple.fr/feed")) is None       # barre oblique
+assert v._redirect_target(_src_redir, _RepRedir("https://www.blog.exemple.fr/feed/")) is None  # www
+_cible_redir = v._redirect_target(_src_redir, _RepRedir("https://www.exemple.com/rss.xml"))
+assert _cible_redir == "https://www.exemple.com/rss.xml", _cible_redir
+assert v._redirect_target(_src_redir, _RepRedir("https://blog.exemple.fr/rss.xml")) is not None
+assert v.source_label({"nom": "X", "statut": "moved", "echecs": 0,
+                       "erreur": "moved to https://n/1"}) == "X → https://n/1"
+print("Redirect detection: OK")
+
+
+# --- Recherche de l'adresse d'un flux mort ------------------------------------
+# Une source « dead » a peut-être seulement changé de chemin : la page d'accueil déclare
+# souvent son flux, et un candidat n'est retenu que s'il rend vraiment des entrées.
+_FLUX_MIN = (b'<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>'
+             b'<item><title>a</title></item><item><title>b</title></item>'
+             b'<item><title>c</title></item></channel></rss>')
+
+
+class _RepDecouv:
+    def __init__(self, url, text="", content=b"", ok=True):
+        self.url = url
+        self.text = text
+        self.content = content
+        self.ok = ok
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise v.requests.RequestException("404")
+
+
+class _SessDecouv:
+    def __init__(self, avec_flux=True):
+        self.avec_flux = avec_flux
+
+    def get(self, url, timeout=None, headers=None):
+        if url.rstrip("/") == "https://exemple.fr":
+            return _RepDecouv(url, text='<link rel="alternate" type="application/rss+xml" '
+                                        'href="/nouveau/feed.xml">')
+        if self.avec_flux and url == "https://exemple.fr/nouveau/feed.xml":
+            return _RepDecouv(url, content=_FLUX_MIN)
+        return _RepDecouv(url, ok=False)
+
+
+class _FluxFactice:
+    def __init__(self, n):
+        self.entries = [object()] * n
+
+
+_parse_decouv = v.feedparser.parse
+v.feedparser.parse = lambda contenu: _FluxFactice(3)
+try:
+    assert v.discover_feed(_SessDecouv(), "https://exemple.fr/vieux.xml") == \
+        "https://exemple.fr/nouveau/feed.xml"
+finally:
+    v.feedparser.parse = _parse_decouv
+# Sans flux valide derrière le candidat, on ne retient rien.
+assert v.discover_feed(_SessDecouv(avec_flux=False), "https://exemple.fr/vieux.xml") is None
+print("Feed discovery: OK")
+
+
+# --- Lien de recherche pour une source introuvable ----------------------------
+# Le suffixe entre parentheses est retire : « Mandiant (GTIG) » ne renvoie presque rien.
+_lien_rech = v.feed_search_url("Mandiant (GTIG)")
+assert "%22Mandiant%22" in _lien_rech, _lien_rech
+assert "GTIG" not in _lien_rech, _lien_rech
+_art_rech = v.Article(source="S", title="t", link="https://n/rech",
+                      date=datetime.now(timezone.utc), category=v.NEWS)
+_etats_rech = [
+    {"nom": "Perdue", "statut": "dead", "echecs": 4, "candidat": None},
+    {"nom": "Trouvee", "statut": "dead", "echecs": 4, "candidat": "https://x/rss"},
+]
+_html_rech = v.render_html({"S": [_art_rech]}, [], None, [], [], source_states=_etats_rech)
+assert _html_rech.count("search</a>") == 1, _html_rech.count("search</a>")
+assert "https://x/rss" in _html_rech
+print("Search link: OK")
+
+
+# --- Un flux déplacé n'est pas un flux cassé ----------------------------------
+# Il répond parfaitement, depuis une autre adresse : le ranger avec les pannes fait croire
+# à dix incidents là où il n'y a que dix déménagements.
+_casses_b = [{"nom": "Morte", "statut": "dead", "echecs": 4, "candidat": None}]
+_deplaces_b = [{"nom": "Bougee", "statut": "moved", "echecs": 0,
+                "erreur": "moved to https://x/rss"}]
+_html_b = v.render_html({"S": [_art_rech]}, [], None, [], [],
+                        source_states=_casses_b, moved_states=_deplaces_b)
+assert "Moved feeds" in _html_b, _html_b[:200]
+_bloc_casse = _html_b.split("Broken sources")[1].split("</p>")[0]
+assert "Bougee" not in _bloc_casse, _bloc_casse
+assert "https://x/rss" in _html_b
+
+# Une source retirée du code ne doit pas rester dans la table.
+with tempfile.TemporaryDirectory() as _d_purge:
+    _ancienne_db_purge = v.DB_FILE
+    v.DB_FILE = str(Path(_d_purge) / "purge.db")
+    _conn_purge = v.open_db()
+    try:
+        _conn_purge.execute("INSERT INTO sources (nom) VALUES ('Source Disparue')")
+        _conn_purge.commit()
+        assert v.prune_orphan_sources(_conn_purge) == 1
+        _noms_restants = {r[0] for r in _conn_purge.execute("SELECT nom FROM sources")}
+        assert "Source Disparue" not in _noms_restants, _noms_restants
+    finally:
+        _conn_purge.close()
+        v.DB_FILE = _ancienne_db_purge
+print("Moved vs broken: OK")
+
+
+# --- Produit visé, lu dans le CPE du NVD --------------------------------------
+# Un titre Sploitus ne dit que « CVE-2023-25157 exploit » : le produit vient de la même
+# reponse NVD que le CVSS, donc sans requete supplementaire.
+_cpe_ofbiz = {"configurations": [{"nodes": [{"cpeMatch": [
+    {"criteria": "cpe:2.3:a:apache:ofbiz:18.12.0:*:*:*:*:*:*:*"}]}]}]}
+assert v.extract_product(_cpe_ofbiz) == "apache ofbiz", v.extract_product(_cpe_ofbiz)
+assert v.extract_product({}) is None
+assert v.extract_product({"configurations": [{"nodes": [{"cpeMatch": [
+    {"criteria": "cpe:2.3:a:*:*:*:*:*:*:*:*:*:*"}]}]}]}) is None
+_art_prod = v.Article(source="S", title="CVE-2023-25157 exploit", link="https://n/p",
+                      date=datetime.now(timezone.utc), category=v.ALERTS, product="apache ofbiz")
+assert "apache ofbiz" in v._metrics(_art_prod), v._metrics(_art_prod)
+print("Product extraction: OK")
+
+
+# --- Dates non conformes ------------------------------------------------------
+# Group-IB publie « Wed, 18 Nov 2026 14:30:33 », sans fuseau horaire : feedparser rejette,
+# et le bot ignorait 373 articles sans que rien ne le signale.
+assert v._entry_date({}) is None
+_date_sans_fuseau = v._entry_date({"published": "Wed, 18 Nov 2026 14:30:33"})
+assert _date_sans_fuseau is not None and _date_sans_fuseau.day == 18, _date_sans_fuseau
+assert _date_sans_fuseau.year == 2026 and _date_sans_fuseau.tzinfo is not None
+assert v._entry_date({"published_parsed": (2026, 11, 18, 14, 30, 33, 0, 0, 0)}).day == 18
+assert v._entry_date({"published": "n'importe quoi"}) is None
+print("Non-standard dates: OK")
+
+
+# --- Titre de repli pour les flux sans titre ----------------------------------
+# Mastodon n'expose pas de <title> : sans repli, ses billets arrivent en « Untitled item ».
+class _FluxSansTitre:
+    bozo = False
+    entries = [{"link": "https://masto/1",
+                "summary": "<p>Un billet Mastodon lisible</p>",
+                "published": "Sat, 21 Nov 2026 10:00:00"}]
+
+
+class _RepMasto:
+    content = b""
+    url = "https://mastodon.social/tags/infosec.rss"
+
+    def raise_for_status(self):
+        pass
+
+
+class _SessMasto:
+    def get(self, *a, **k):
+        return _RepMasto()
+
+
+_parse_masto = v.feedparser.parse
+v.feedparser.parse = lambda *a, **k: _FluxSansTitre()
+try:
+    _arts_masto, _ = v.collect_rss(
+        _SessMasto(),
+        {"name": "Mastodon (infosec)", "url": "https://mastodon.social/tags/infosec.rss",
+         "category": v.BLOGS},
+        datetime(2026, 11, 20, tzinfo=timezone.utc), set())
+finally:
+    v.feedparser.parse = _parse_masto
+assert _arts_masto, "aucun article produit"
+assert _arts_masto[0].title == "Un billet Mastodon lisible", _arts_masto[0].title
+print("Fallback title: OK")
+
+
+# --- Une source active pendant le run n'est pas « muette » ---------------------
+with tempfile.TemporaryDirectory() as _d_sil:
+    _ancienne_db_sil = v.DB_FILE
+    v.DB_FILE = str(Path(_d_sil) / "sil.db")
+    _conn_sil = v.open_db()
+    try:
+        _auj_sil = datetime.now(timezone.utc)
+        _nom_sil = v.RSS_SOURCES[0]["name"]
+        _conn_sil.execute(
+            "INSERT INTO articles (lien, vu_le, source, categorie, titre) VALUES (?,?,?,?,?)",
+            ("https://s/9", (_auj_sil - timedelta(days=30)).date().isoformat(),
+             _nom_sil, "News", "t"))
+        _conn_sil.commit()
+        assert (_nom_sil, 30) in v.silent_sources(_conn_sil, _auj_sil), "devrait etre muette"
+        assert v.silent_sources(_conn_sil, _auj_sil, exclure={_nom_sil}) == [], \
+            "une source active ne doit plus etre muette"
+    finally:
+        _conn_sil.close()
+        v.DB_FILE = _ancienne_db_sil
+print("Silent exclusion: OK")
+
+
+# --- Plafond d'âge sur les exploits anciens -----------------------------------
+# log4shell et CVE-2022-2588 remontaient en tête chaque semaine : un PoC pour une faille de
+# plus de deux ans ne doit pas dépasser orange.
+assert v._oldest_cve_year(("CVE-2022-2588", "CVE-2026-1")) == 2022
+assert v._oldest_cve_year(()) is None
+assert v._oldest_cve_year(("pas-une-cve",)) is None
+assert next(s for s in v.RSS_SOURCES if s["name"] == "Sploitus").get("age_cap") is True
+assert v.REMINDERS_MIN_DAYS >= 3 and v.REMINDERS_MIN_DAYS < v.REMINDERS_DAYS
+print("Age cap: OK")
+
+
+# --- Couverture croisée : l'âge cède devant le nombre -------------------------
+# Trois sources qui reparlent de la même CVE valent mieux qu'un âge.
+_art_vieux_isole = v.Article(source="Sploitus", title="t", link="https://c/1",
+                             date=datetime.now(timezone.utc), category=v.ALERTS,
+                             score=16, severity=v.severity_badge(16),
+                             cves=("CVE-2021-44228",))
+_art_vieux_couvert = v.Article(source="Sploitus", title="t", link="https://c/2",
+                               date=datetime.now(timezone.utc), category=v.ALERTS,
+                               score=16, severity=v.severity_badge(16),
+                               cves=("CVE-2019-19781",))
+_art_kev_vieux = v.Article(source="CISA KEV", title="t", link="https://c/3",
+                           date=datetime.now(timezone.utc), category=v.ALERTS,
+                           score=16, severity=v.severity_badge(16),
+                           cves=("CVE-2018-13379",))
+_groupes_cov = {"A": [_art_vieux_isole], "B": [_art_vieux_couvert, _art_kev_vieux]}
+v.apply_corroboration(_groupes_cov, {
+    "CVE-2021-44228": {"Sploitus"},
+    "CVE-2019-19781": {"Sploitus", "BleepingComputer", "The Record", "CISA KEV"},
+    "CVE-2018-13379": {"CISA KEV"},
+})
+assert _art_vieux_isole.score == v.CRITICAL_THRESHOLD - 1, _art_vieux_isole.score
+assert _art_vieux_isole.severity == "🟠", _art_vieux_isole.severity
+assert _art_vieux_couvert.corroborated == 4, _art_vieux_couvert.corroborated
+assert _art_vieux_couvert.score > v.CRITICAL_THRESHOLD - 1, _art_vieux_couvert.score
+assert _art_kev_vieux.score == 16, "une KEV ne doit jamais être plafonnée par l'âge"
+assert "4 sources" in v._metrics(_art_vieux_couvert), v._metrics(_art_vieux_couvert)
+print("Cross-source coverage: OK")
+
+
+# --- Page HTML servie à la place d'un flux ------------------------------------
+# feedparser ne marque pas toujours bozo sur du HTML : sans repli la source se vidait en
+# silence, et sans le contrôle de version elle n'était pas signalée en erreur.
+class _FluxSimule:
+    def __init__(self, bozo=False, version=""):
+        self.entries = []
+        self.bozo = bozo
+        self._version = version
+
+    def get(self, cle, defaut=None):
+        return self._version if cle == "version" else defaut
+
+
+class _RepSimule:
+    url = "https://x/feed"
+    content = b""
+
+    def raise_for_status(self):
+        pass
+
+
+class _SessSimule:
+    def get(self, url, timeout=None, headers=None):
+        return _RepSimule()
+
+
+_src_simule = {"name": "Simule", "url": "https://x/feed", "category": v.INTEL}
+_since_simule = datetime(2026, 11, 20, tzinfo=timezone.utc)
+_parse_initial = v.feedparser.parse
+try:
+    # page HTML : pas de version déclarée → doit être signalée
+    v.feedparser.parse = lambda contenu: _FluxSimule(bozo=False, version="")
+    _arts_html, _err_html = v.collect_rss(_SessSimule(), _src_simule, _since_simule, set())
+    assert _arts_html == [] and _err_html and "unreadable feed" in _err_html, _err_html
+    # flux réellement vide : version déclarée → aucune erreur
+    v.feedparser.parse = lambda contenu: _FluxSimule(bozo=False, version="rss20")
+    _arts_vide, _err_vide = v.collect_rss(_SessSimule(), _src_simule, _since_simule, set())
+    assert _arts_vide == [] and _err_vide is None, _err_vide
+finally:
+    v.feedparser.parse = _parse_initial
+print("HTML instead of feed: OK")
+
+
+# --- Signal fort exigé pour les sources bavardes ------------------------------
+# Mastodon : une offre d'emploi ou une opinion ne vaut pas une ligne de veille ; une CVE,
+# un acteur, un TTP ou un rançongiciel, oui.
+class _FluxAvecEntrees:
+    bozo = False
+
+    def __init__(self, entrees):
+        self.entries = entrees
+
+    def get(self, cle, defaut=None):
+        return "rss20"
+
+
+def _entree_test(texte):
+    return {"link": "https://bavarde/1", "title": "", "summary": texte,
+            "published": "Sat, 21 Nov 2026 10:00:00 GMT"}
+
+
+_src_bavarde = {"name": "Bavarde", "url": "https://bavarde/feed", "category": v.BLOGS,
+                "strong": True}
+_since_bavarde = datetime(2026, 11, 20, tzinfo=timezone.utc)
+_parse_avant = v.feedparser.parse
+try:
+    v.feedparser.parse = lambda c: _FluxAvecEntrees(
+        [_entree_test("Remote Senior Security Engineer at Ashby, apply here")])
+    _arts_bav, _ = v.collect_rss(_SessSimule(), _src_bavarde, _since_bavarde, set())
+    assert _arts_bav == [], "une offre d'emploi ne doit pas passer"
+    v.feedparser.parse = lambda c: _FluxAvecEntrees(
+        [_entree_test("CVE-2026-1234 allows remote code execution in the gateway")])
+    _arts_fort, _ = v.collect_rss(_SessSimule(), _src_bavarde, _since_bavarde, set())
+    assert len(_arts_fort) == 1 and _arts_fort[0].cves, _arts_fort
+finally:
+    v.feedparser.parse = _parse_avant
+assert next(s for s in v.RSS_SOURCES if s["name"] == "Mastodon (infosec)").get("strong") is True
+print("Strong signal: OK")
+
+
+# --- Fonctions pures : negation, traduction, regroupement ----------------------
+# _positive doit ignorer une occurrence niee : sinon « not exploited » suffirait a declencher.
+assert v._positive(v.RE_EXPLOITED, "actively exploited in the wild") is True
+assert v._positive(v.RE_EXPLOITED, "not exploited in the wild") is False
+assert v._positive(v.RE_EXPLOITED, "isn't being exploited") is False
+assert v._positive(v.RE_RANSOM, "ransomware attack reported") is True
+assert v._positive(v.RE_RANSOM, "no ransomware involved") is False
+
+# translate_german : les locutions partent, le nom de produit et l'anglais restent.
+assert v.translate_german("[UPDATE] [kritisch] GitLab: Mehrere Schwachstellen") == \
+    "[UPDATED] [critical] GitLab: Multiple vulnerabilities"
+assert "Privilegieneskalation" not in v.translate_german(
+    "[NEU] [hoch] X: Schwachstelle ermöglicht Privilegieneskalation")
+assert v.translate_german("Microsoft Exchange Server: new critical patch") == \
+    "Microsoft Exchange Server: new critical patch"
+
+# group_articles : dedup par lien, repli par CVE, et le lien replie reste memorise.
+_grp_now = datetime.now(timezone.utc)
+
+
+def _mk(source, titre, lien, cves=()):
+    return v.Article(source=source, title=titre, link=lien, date=_grp_now,
+                     category=v.NEWS, cves=cves)
+
+
+_groupes, _liens = v.group_articles([
+    ([_mk("S1", "PHP2Shell exploited", "https://g/1", ("CVE-2026-1",))], None),
+    ([_mk("S2", "PHP2Shell elsewhere", "https://g/2", ("CVE-2026-1",))], None),
+    ([_mk("S3", "Duplicate link", "https://g/1")], None),
+])
+_gardes = [x for xs in _groupes.values() for x in xs]
+assert [x.title for x in _gardes] == ["PHP2Shell exploited"], _gardes
+assert set(_liens) == {"https://g/1", "https://g/2"}, _liens
+print("Pure functions: OK")
+
+
+# --- Marquage des nouveautes --------------------------------------------------
+# Le rapport glissant repete un article deux jours : seuls les liens jamais vus portent le 🆕.
+_neuf = v.Article(source="S", title="Nouvelle attaque", link="https://n/1",
+                  date=_grp_now, category=v.NEWS)
+_vieux = v.Article(source="S", title="Deja vue", link="https://n/2",
+                   date=_grp_now, category=v.NEWS)
+_html_new = v.render_html({"S": [_neuf, _vieux]}, [], None, [], [],
+                          max_articles=10, fresh={"https://n/1"})
+assert '🆕 <a href="https://n/1"' in _html_new, _html_new[:400]
+assert '🆕 <a href="https://n/2"' not in _html_new
+# Sans le parametre, aucun marqueur : le rendu reste utilisable seul.
+assert "🆕" not in v.render_html({"S": [_neuf]}, [], None, [], [], max_articles=10)
+_txt_new = v.render_text({"S": [_neuf, _vieux]}, [], None, [], [],
+                         max_articles=10, fresh={"https://n/1"})
+assert "🆕 Nouvelle attaque" in _txt_new
+assert "🆕 Deja vue" not in _txt_new
+print("Fresh marker: OK")
+
+
+# --- Repli d'agent pour les flux qui refusent un faux navigateur --------------
+# Schneier, NVISO et Hackmageddon repondent 403 ou coupent la connexion quand le client se
+# declare navigateur sans en etre un : la seconde tentative doit porter l'agent honnete.
+class _RepFlux:
+    def __init__(self, ok):
+        self.ok = ok
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise v.requests.RequestException("403")
+
+
+class _SessFlux:
+    def __init__(self):
+        self.appels = []
+
+    def get(self, url, timeout=None, headers=None):
+        heads = headers or {}
+        self.appels.append(heads)
+        # Seule la requete portant un User-Agent explicite reussit.
+        return _RepFlux("User-Agent" in heads)
+
+
+_sess_flux = _SessFlux()
+v.fetch_feed(_sess_flux, "https://exemple.invalid/flux")
+assert len(_sess_flux.appels) == 2, _sess_flux.appels
+assert "User-Agent" not in _sess_flux.appels[0], _sess_flux.appels
+assert _sess_flux.appels[1].get("User-Agent") == v.FEED_READER_UA, _sess_flux.appels
+print("Feed retry: OK")
 
 
 # --- Mode alerte -------------------------------------------------------------
@@ -646,8 +1257,13 @@ with tempfile.TemporaryDirectory() as dossier:
             collect_cisa_kev=lambda session, seen: ([nouveau], None),
             collect_github_advisories=lambda session, since: ([], None),
             collect_ransomware_victims=lambda *a, **k: ([], None),
+            collect_hibp=lambda *a, **k: ([], None),
+            collect_euvd=lambda *a, **k: ([], None),
+            collect_nvd_vendors=lambda *a, **k: ([], None),
+            collect_metasploit_cves=lambda *a, **k: ([], None),
+            fetch_mirage_stats=lambda *a, **k: {},
             collect_source=lambda source, since, seen: ([], None),
-            enrich=lambda session, groups, cache: {},
+            enrich=lambda session, groups, cache, *a, **k: {},
             open_db=lambda: None,
             load_cvss_cache=lambda conn: {},
             send_email=capture_alerte,

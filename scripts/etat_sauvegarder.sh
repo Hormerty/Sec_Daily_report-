@@ -4,7 +4,7 @@
 # (Ne pas protéger cette branche, sinon le force-push sera refusé.)
 set -euo pipefail
 BRANCHE="${ETAT_BRANCHE:-data}"
-FICHIERS=(seen.json stats.db kev_cache.json alertes_envoyees.json)
+FICHIERS=(seen.json stats.db kev_cache.json alertes_envoyees.json metasploit_cache.json)
 REMOTE="${ETAT_REMOTE:-}"
 if [ -z "$REMOTE" ]; then
   : "${GH_TOKEN:?GH_TOKEN manquant}"

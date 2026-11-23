@@ -3684,6 +3684,20 @@ def apply_corroboration(groups: dict[str, list[Article]],
     return modifiees
 
 
+def build_subject(now: datetime, totals: dict) -> str:
+    """Sujet du rapport : identité, date ISO, puis les chiffres qui disent s'il faut ouvrir.
+
+    La date est en ISO parce que le sujet est en anglais : « 22/11/2026 » se lit
+    différemment selon le pays, « 2026-11-22 » jamais.
+    """
+    sujet = f"🛡️ Cyber security watch — {now:%Y-%m-%d}"
+    if totals.get("critical"):
+        sujet += f" · 🔴 {totals['critical']} critical"
+    if totals.get("campaigns"):
+        sujet += f" · ⚡ {totals['campaigns']} campaign(s)"
+    return sujet
+
+
 def degradation_reason(errors: list[str]) -> str | None:
     """Pourquoi la veille est dégradée, ou None si elle est saine.
 
@@ -3829,12 +3843,8 @@ def main() -> int:
             log.info("Nothing new: no e-mail sent.")
             return 0
 
-        subject = f"🛡️ Cyber security watch — {now:%d/%m/%Y}"
         totals = compute_totals(groups)
-        if totals["critical"]:
-            subject += f" · 🔴 {totals['critical']} critical"
-        if totals["campaigns"]:
-            subject += f" · ⚡ {totals['campaigns']} campaign(s)"
+        subject = build_subject(now, totals)
 
         email_limit = MAX_EMAIL_ARTICLES
         # Un flux peut repondre et ne plus rien publier : invisible dans le bandeau d'erreurs.

@@ -183,6 +183,9 @@ All values are environment variables, all optional:
 | `ALERT_MAX` | `5` | Items per alert e-mail; the rest waits for the next slot |
 | `FORCE_VEILLE` | — | `1` sends a report even if one already went out |
 | `IGNORE_SEEN` | `1` | `0` replays items already delivered |
+| `SEND_IF_DEGRADED` | `0` | `1` sends the report even when the watch is degraded (no reachable source, more than 30 % in error, KEV down) |
+| `PREVIEW` | — | `1` or `--preview`: writes `preview.html` and `preview.txt`, sends nothing, touches no state |
+| `PREVIEW_OUT` | `preview` | Path prefix for the preview files |
 
 Your own organisation is described in three places at the top of `veille.py`: `KEYWORDS_TARGETS` (products and vendors you care about), `STACK_PRODUCTS` (your actual tooling) and `COUNTRIES` (the footprint used by the European section). Editing those three lists is what turns a generic news digest into a watchlist.
 

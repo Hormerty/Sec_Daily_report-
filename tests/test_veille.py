@@ -105,3 +105,13 @@ def test_html_escapes_country_names():
     html = veille.render_html({"X": [_article()]}, [])
     assert 'lang="en"' in html
     assert "National CERT" in html
+
+
+def test_degradation_reason():
+    """Le dégradé se juge sur les sources en échec, jamais sur le nombre d'articles."""
+    total = len(veille.RSS_SOURCES) + veille.EXTRA_SOURCES
+    assert veille.degradation_reason([]) is None
+    assert veille.degradation_reason(["Feed A: timeout"]) is None
+    assert veille.degradation_reason(["boom"] * total) == "No reachable source"
+    assert "sources in error" in veille.degradation_reason(["boom"] * (total // 2 + 1))
+    assert veille.degradation_reason(["CISA KEV: down"]) == "CISA KEV unavailable: degraded watch"

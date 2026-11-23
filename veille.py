@@ -551,6 +551,137 @@ KEYWORDS_TARGETS = [
     # Acces distant d'entreprise : meme famille que Citrix, Ivanti et les SSL-VPN.
     "teamviewer",
 ]
+# --- Périmètre éditable --------------------------------------------------------
+# Ce qui décrit *ton* organisation sort du code : les pays de l'empreinte, les produits de
+# ta stack et les fournisseurs que tu surveilles. La logique — scoring, seuils, listes de
+# techniques — reste ici, parce qu'elle n'obéit pas au même besoin : on change un périmètre
+# tous les mois, on change une formule de score une fois par an, et pas à la légère.
+CONFIG_FILE = _env_str("CONFIG_FILE", "config.json")
+_SECTIONS = ("countries", "stack", "targets")
+
+
+class ConfigurationError(ValueError):
+    """Configuration invalide : on s'arrête net plutôt qu'une rubrique qui disparaît."""
+
+
+def charger_configuration(chemin: str | Path) -> dict:
+    """Lit le fichier de périmètre, ou renvoie {} s'il n'existe pas."""
+    fichier = Path(chemin)
+    if not fichier.exists():
+        return {}
+    try:
+        # utf-8-sig : Windows écrit fréquemment un BOM (PowerShell, Notepad « UTF-8 avec
+        # BOM »), et json.loads le refuse. On l'accepte plutôt que d'imposer un format
+        # d'encodage que personne ne choisit consciemment.
+        return json.loads(fichier.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError(
+            f"{fichier}: JSON invalide ligne {exc.lineno}, colonne {exc.colno} ({exc.msg})") from exc
+
+
+def _texte(valeur, ou: str) -> str:
+    if not isinstance(valeur, str) or not valeur.strip():
+        raise ConfigurationError(f"{ou}: texte non vide attendu")
+    return valeur.strip()
+
+
+def _liste_textes(valeur, ou: str) -> list[str]:
+    if not isinstance(valeur, list) or not valeur:
+        raise ConfigurationError(f"{ou}: liste non vide attendue")
+    return [_texte(element, f"{ou}[{index}]") for index, element in enumerate(valeur)]
+
+
+def valider_configuration(brut: dict) -> dict:
+    """Vérifie la forme avant toute fusion : mieux vaut refuser que dégrader en silence."""
+    if not isinstance(brut, dict):
+        raise ConfigurationError("la configuration doit être un objet JSON")
+    inconnues = set(brut) - set(_SECTIONS)
+    if inconnues:
+        raise ConfigurationError(
+            f"section inconnue : {', '.join(sorted(inconnues))} "
+            f"(attendu : {', '.join(_SECTIONS)})")
+
+    validee: dict = {}
+    if "countries" in brut:
+        pays = brut["countries"]
+        if not isinstance(pays, dict):
+            raise ConfigurationError("countries: objet attendu (code -> definition)")
+        propres: dict = {}
+        for code, definition in pays.items():
+            if definition is None:      # suppression explicite d'un pays
+                propres[code] = None
+                continue
+            ou = f"countries.{code}"
+            if not isinstance(definition, dict):
+                raise ConfigurationError(f"{ou}: objet attendu")
+            manquants = {"flag", "name", "links", "keywords"} - set(definition)
+            if manquants:
+                raise ConfigurationError(
+                    f"{ou}: champ(s) manquant(s) : {', '.join(sorted(manquants))}")
+            liens = definition["links"]
+            if not isinstance(liens, list) or not liens:
+                raise ConfigurationError(f"{ou}.links: liste de [libelle, url] attendue")
+            for index, lien in enumerate(liens):
+                valide = (isinstance(lien, list) and len(lien) == 2
+                          and all(isinstance(x, str) for x in lien)
+                          and lien[1].startswith("https://"))
+                if not valide:
+                    raise ConfigurationError(
+                        f"{ou}.links[{index}]: [libelle, url https] attendu")
+            propres[code] = {
+                "flag": _texte(definition["flag"], f"{ou}.flag"),
+                "name": _texte(definition["name"], f"{ou}.name"),
+                "links": [[lien[0], lien[1]] for lien in liens],
+                "keywords": _liste_textes(definition["keywords"], f"{ou}.keywords"),
+            }
+        validee["countries"] = propres
+
+    if "stack" in brut:
+        stack = brut["stack"]
+        if not isinstance(stack, dict):
+            raise ConfigurationError("stack: objet attendu (nom -> liste de locutions)")
+        validee["stack"] = {
+            nom: (None if mots is None else _liste_textes(mots, f"stack.{nom}"))
+            for nom, mots in stack.items()
+        }
+
+    if "targets" in brut:
+        validee["targets"] = _liste_textes(brut["targets"], "targets")
+
+    return validee
+
+
+def appliquer_configuration(validee: dict) -> None:
+    """Fusionne le périmètre validé dans les valeurs par défaut, **en place**.
+
+    La fusion modifie les objets existants (clear/update) et ne les remplace pas : les
+    regexes RE_COUNTRIES, RE_STACK et RE_TARGETS sont compilées plus bas depuis ces mêmes
+    objets. Les remplacer laisserait les regexes pointer sur les anciennes listes.
+    """
+    for code, definition in validee.get("countries", {}).items():
+        if definition is None:
+            COUNTRIES.pop(code, None)
+        else:
+            COUNTRIES[code] = definition
+    for nom, mots in validee.get("stack", {}).items():
+        if mots is None:
+            STACK_PRODUCTS.pop(nom, None)
+        else:
+            STACK_PRODUCTS[nom] = mots
+    if "targets" in validee:
+        KEYWORDS_TARGETS.clear()
+        KEYWORDS_TARGETS.extend(validee["targets"])
+
+
+def _charger_perimetre() -> None:
+    """Applique config.json au chargement ; fichier absent → valeurs par défaut intactes."""
+    chargee = charger_configuration(CONFIG_FILE)
+    if chargee:
+        appliquer_configuration(valider_configuration(chargee))
+
+
+_charger_perimetre()
+
 # Signaux d'exploitation : pondérés plus fort que la simple stack.
 KEYWORDS_THREATS = [
     "rce", "remote code execution", "arbitrary code execution", "execute arbitrary code",

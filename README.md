@@ -31,7 +31,7 @@ Each line carries what you actually need to triage it: severity badge, country f
 
 This is not a global feed reader with a European filter bolted on: the orientation is in the design.
 
-- **European focus is the section that matters.** Every item mentioning a country of the footprint is regrouped there, so a German advisory about a French subsidiary does not disappear among two hundred headlines. The footprint has 29 entries, EU included, and lives in `COUNTRIES`.
+- **European focus is the section that matters.** Every item mentioning a country of the footprint is regrouped there, so a German advisory about a French subsidiary does not disappear among two hundred headlines. The footprint **ships with 29 entries**, EU included, and lives in `config.json` — change the file and the section follows. The **121 sources** (114 feeds and 7 API collectors) stay in the code: they are URLs and categories, not a perimeter.
 - **The national CERTs of the footprint are queried directly** — CERT-FR and ANSSI, CERT-EU, BSI, NCSC-NL, CERT-SE, CCB, CIRCL, CSIRT Italia, INCIBE, NCSC UK, NSM and the others — and the report always closes with their index, even on a quiet day. That is the part that tells you where to look next.
 - **ENISA's EUVD** collector runs alongside CISA's KEV, so the European vulnerability database is covered, not only the American one.
 - **French-language sources are read in French**, never machine-translated — Next, 01net, Zataz, Korben, Clubic, IT-Connect, FrenchBreaches, Le Monde Informatique — because a French breach rarely reaches the English press.
@@ -131,7 +131,7 @@ The tool sends mail through SMTP, so it needs a mail account. Three secrets are 
 
 ### Where to put them
 
-Locally, export them in your shell — or keep a `.env` file you never commit:
+Locally, export them in your shell — the script reads environment variables, not a `.env` file:
 
 ```bash
 export EMAIL_USER="mywatch@gmail.com"
@@ -187,7 +187,14 @@ All values are environment variables, all optional:
 | `PREVIEW` | — | `1` or `--preview`: writes `preview.html` and `preview.txt`, sends nothing, touches no state |
 | `PREVIEW_OUT` | `preview` | Path prefix for the preview files |
 
-Your own organisation is described in three places at the top of `veille.py`: `KEYWORDS_TARGETS` (products and vendors you care about), `STACK_PRODUCTS` (your actual tooling) and `COUNTRIES` (the footprint used by the European section). Editing those three lists is what turns a generic news digest into a watchlist.
+Your own organisation is described in `config.json`, at the root of the repository: `countries` (the footprint used by the European section), `stack` (your actual tooling) and `targets` (the vendors and products you care about). The file ships with the defaults — **29 countries, 7 stack products, 81 targets** — so a missing file changes nothing at all. Copy `config.example.json` to `config.json` and edit only what you need.
+
+Two rules, and they are enough:
+
+- an entry you provide **replaces** the default carrying the same name (a country code, a stack product, the target list as a whole);
+- `null` **removes** it.
+
+Everything else — the scoring, the thresholds, the source list — stays in `veille.py`, because that is logic rather than perimeter. A malformed file is refused at startup with the offending section and field named, rather than a section quietly missing from the report.
 
 ### Adding a product to your stack
 

@@ -123,16 +123,16 @@ def test_degradation_reason():
     assert veille.degradation_reason(["CISA KEV: down"]) == "CISA KEV unavailable: degraded watch"
 
 
-def test_build_subject_uses_iso_date_and_counts():
+def test_build_subject_garde_la_date_jour_mois_annee():
     now = datetime(2026, 11, 22, 6, 0, tzinfo=timezone.utc)
     sujet = veille.build_subject(now, {"critical": 3, "campaigns": 2})
-    assert "2026-11-22" in sujet
-    assert "22/11/2026" not in sujet
+    assert "22/11/2026" in sujet
+    assert "2026-11-22" not in sujet
     assert "3 critical" in sujet
     assert "2 campaign(s)" in sujet
     # Sans rien de critique, le sujet reste l'identité et la date, sans chiffre inventé.
     calme = veille.build_subject(now, {"critical": 0, "campaigns": 0})
-    assert calme.endswith("2026-11-22")
+    assert calme.endswith("22/11/2026")
 
 
 # --- Périmètre éditable -----------------------------------------------------

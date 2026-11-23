@@ -3816,12 +3816,12 @@ def apply_corroboration(groups: dict[str, list[Article]],
 
 
 def build_subject(now: datetime, totals: dict) -> str:
-    """Sujet du rapport : identité, date ISO, puis les chiffres qui disent s'il faut ouvrir.
+    """Sujet du rapport : identité, date, puis les chiffres qui disent s'il faut ouvrir.
 
-    La date est en ISO parce que le sujet est en anglais : « 22/11/2026 » se lit
-    différemment selon le pays, « 2026-11-22 » jamais.
+    La date garde le format jour/mois/année : c'est le choix du propriétaire du dépôt, et
+    il est centralisé ici pour qu'un seul endroit gouverne le jour où il change d'avis.
     """
-    sujet = f"🛡️ Cyber security watch — {now:%Y-%m-%d}"
+    sujet = f"🛡️ Cyber security watch — {now:%d/%m/%Y}"
     if totals.get("critical"):
         sujet += f" · 🔴 {totals['critical']} critical"
     if totals.get("campaigns"):

@@ -1,0 +1,776 @@
+{
+  "_commentaire": "Périmètre de veille. Copier en config.json et modifier. Les entrées absentes gardent leur valeur par défaut ; une valeur null retire l'entrée.",
+  "countries": {
+    "EU": {
+      "name": "European Union",
+      "flag": "🇪🇺",
+      "keywords": [
+        "european union",
+        "union européenne",
+        "european commission",
+        "commission européenne",
+        "european parliament",
+        "parlement européen",
+        "cert-eu",
+        "enisa",
+        "europol",
+        "eurojust",
+        "nato",
+        "eu agency",
+        "nis2",
+        "gdpr",
+        "rgpd",
+        "dora",
+        "cyber resilience act",
+        "european"
+      ],
+      "links": [
+        [
+          "CERT-EU",
+          "https://cert.europa.eu/"
+        ],
+        [
+          "ENISA",
+          "https://www.enisa.europa.eu/"
+        ],
+        [
+          "NIS2",
+          "https://digital-strategy.ec.europa.eu/en/policies/nis2-directive"
+        ]
+      ]
+    },
+    "AT": {
+      "name": "Austria",
+      "flag": "🇦🇹",
+      "keywords": [
+        "austria",
+        "autriche",
+        "österreich",
+        "osterreich",
+        "austrian",
+        "autrichien",
+        "vienna",
+        "wien"
+      ],
+      "links": [
+        [
+          "CERT.at",
+          "https://www.cert.at/"
+        ],
+        [
+          "Onlinesicherheit",
+          "https://www.onlinesicherheit.gv.at/"
+        ]
+      ]
+    },
+    "BE": {
+      "name": "Belgium",
+      "flag": "🇧🇪",
+      "keywords": [
+        "belgium",
+        "belgique",
+        "belgië",
+        "belgie",
+        "belgian",
+        "belge",
+        "belges",
+        "brussels",
+        "bruxelles",
+        "brussel",
+        "ccb",
+        "safeonweb"
+      ],
+      "links": [
+        [
+          "CCB",
+          "https://ccb.belgium.be/"
+        ],
+        [
+          "Safeonweb",
+          "https://safeonweb.be/"
+        ]
+      ]
+    },
+    "BG": {
+      "name": "Bulgaria",
+      "flag": "🇧🇬",
+      "keywords": [
+        "bulgaria",
+        "bulgarie",
+        "bulgarian",
+        "bulgare",
+        "sofia"
+      ],
+      "links": [
+        [
+          "GovCERT Bulgaria",
+          "https://www.govcert.bg/"
+        ]
+      ]
+    },
+    "HR": {
+      "name": "Croatia",
+      "flag": "🇭🇷",
+      "keywords": [
+        "croatia",
+        "croatie",
+        "croatian",
+        "croate",
+        "zagreb"
+      ],
+      "links": [
+        [
+          "CERT.hr",
+          "https://www.cert.hr/"
+        ],
+        [
+          "ZSIS",
+          "https://www.zsis.hr/"
+        ]
+      ]
+    },
+    "CZ": {
+      "name": "Czechia",
+      "flag": "🇨🇿",
+      "keywords": [
+        "czechia",
+        "czech republic",
+        "tchéquie",
+        "république tchèque",
+        "czech",
+        "tchèque",
+        "prague",
+        "praha",
+        "brno"
+      ],
+      "links": [
+        [
+          "GovCERT.CZ",
+          "https://www.govcert.cz/"
+        ],
+        [
+          "NÚKIB",
+          "https://www.nukib.cz/"
+        ]
+      ]
+    },
+    "DK": {
+      "name": "Denmark",
+      "flag": "🇩🇰",
+      "keywords": [
+        "denmark",
+        "danemark",
+        "danish",
+        "danois",
+        "copenhagen",
+        "københavn"
+      ],
+      "links": [
+        [
+          "CFCS",
+          "https://www.cfcs.dk/"
+        ],
+        [
+          "Sikkerdigital",
+          "https://www.sikkerdigital.dk/"
+        ]
+      ]
+    },
+    "EE": {
+      "name": "Estonia",
+      "flag": "🇪🇪",
+      "keywords": [
+        "estonia",
+        "estonie",
+        "estonian",
+        "estonien",
+        "tallinn"
+      ],
+      "links": [
+        [
+          "CERT-EE",
+          "https://www.cert.ee/"
+        ],
+        [
+          "RIA",
+          "https://www.ria.ee/"
+        ]
+      ]
+    },
+    "FI": {
+      "name": "Finland",
+      "flag": "🇫🇮",
+      "keywords": [
+        "finland",
+        "finlande",
+        "finnish",
+        "finlandais",
+        "helsinki"
+      ],
+      "links": [
+        [
+          "NCSC-FI",
+          "https://www.kyberturvallisuuskeskus.fi/en"
+        ],
+        [
+          "Traficom",
+          "https://www.traficom.fi/en"
+        ]
+      ]
+    },
+    "FR": {
+      "name": "France",
+      "flag": "🇫🇷",
+      "keywords": [
+        "france",
+        "french",
+        "français",
+        "francais",
+        "paris",
+        "montpellier"
+      ],
+      "links": [
+        [
+          "CERT-FR",
+          "https://www.cert.ssi.gouv.fr/"
+        ],
+        [
+          "ANSSI",
+          "https://cyber.gouv.fr/"
+        ]
+      ]
+    },
+    "DE": {
+      "name": "Germany",
+      "flag": "🇩🇪",
+      "keywords": [
+        "germany",
+        "allemagne",
+        "deutschland",
+        "german",
+        "allemand",
+        "berlin",
+        "munich",
+        "münchen",
+        "ehningen",
+        "böblingen",
+        "boeblingen"
+      ],
+      "links": [
+        [
+          "BSI",
+          "https://www.bsi.bund.de/"
+        ],
+        [
+          "CERT-Bund",
+          "https://wid.cert-bund.de/"
+        ],
+        [
+          "Heise Security",
+          "https://www.heise.de/security/"
+        ]
+      ]
+    },
+    "GR": {
+      "name": "Greece",
+      "flag": "🇬🇷",
+      "keywords": [
+        "greece",
+        "grèce",
+        "grece",
+        "greek",
+        "grec",
+        "athens",
+        "athènes"
+      ],
+      "links": [
+        [
+          "GR-CERT (NIS)",
+          "https://www.nis.gr/el/national-cert/"
+        ]
+      ]
+    },
+    "HU": {
+      "name": "Hungary",
+      "flag": "🇭🇺",
+      "keywords": [
+        "hungary",
+        "hongrie",
+        "hungarian",
+        "hongrois",
+        "budapest"
+      ],
+      "links": [
+        [
+          "NKI / SZTFH",
+          "https://sztfh.hu/"
+        ]
+      ]
+    },
+    "IE": {
+      "name": "Ireland",
+      "flag": "🇮🇪",
+      "keywords": [
+        "ireland",
+        "irlande",
+        "irish",
+        "irlandais",
+        "dublin"
+      ],
+      "links": [
+        [
+          "NCSC Ireland",
+          "https://www.ncsc.gov.ie/"
+        ]
+      ]
+    },
+    "IT": {
+      "name": "Italy",
+      "flag": "🇮🇹",
+      "keywords": [
+        "italy",
+        "italie",
+        "italian",
+        "italien",
+        "rome",
+        "milan",
+        "milano",
+        "segrate"
+      ],
+      "links": [
+        [
+          "CSIRT Italia",
+          "https://www.csirt.gov.it/"
+        ],
+        [
+          "Cybersecurity360",
+          "https://www.cybersecurity360.it/"
+        ]
+      ]
+    },
+    "LV": {
+      "name": "Latvia",
+      "flag": "🇱🇻",
+      "keywords": [
+        "latvia",
+        "lettonie",
+        "latvian",
+        "letton",
+        "riga"
+      ],
+      "links": [
+        [
+          "CERT.LV",
+          "https://cert.lv/"
+        ]
+      ]
+    },
+    "LT": {
+      "name": "Lithuania",
+      "flag": "🇱🇹",
+      "keywords": [
+        "lithuania",
+        "lituanie",
+        "lithuanian",
+        "lituanien",
+        "vilnius"
+      ],
+      "links": [
+        [
+          "NKSC",
+          "https://www.nksc.lt/"
+        ]
+      ]
+    },
+    "LU": {
+      "name": "Luxembourg",
+      "flag": "🇱🇺",
+      "keywords": [
+        "luxembourg",
+        "luxemburg",
+        "luxembourgish",
+        "luxembourgeois"
+      ],
+      "links": [
+        [
+          "CIRCL",
+          "https://www.circl.lu/"
+        ],
+        [
+          "NC3",
+          "https://www.nc3.lu/"
+        ]
+      ]
+    },
+    "NL": {
+      "name": "Netherlands",
+      "flag": "🇳🇱",
+      "keywords": [
+        "netherlands",
+        "nederland",
+        "pays-bas",
+        "holland",
+        "dutch",
+        "néerlandais",
+        "amsterdam",
+        "hague",
+        "den haag"
+      ],
+      "links": [
+        [
+          "NCSC-NL",
+          "https://www.ncsc.nl/"
+        ],
+        [
+          "Security.nl",
+          "https://www.security.nl/"
+        ]
+      ]
+    },
+    "NO": {
+      "name": "Norway",
+      "flag": "🇳🇴",
+      "keywords": [
+        "norway",
+        "norvège",
+        "norvege",
+        "norwegian",
+        "norvégien",
+        "oslo"
+      ],
+      "links": [
+        [
+          "NSM",
+          "https://nsm.no/"
+        ]
+      ]
+    },
+    "PL": {
+      "name": "Poland",
+      "flag": "🇵🇱",
+      "keywords": [
+        "poland",
+        "pologne",
+        "polish",
+        "polonais",
+        "warsaw",
+        "warszawa",
+        "kraków",
+        "krakow"
+      ],
+      "links": [
+        [
+          "CERT Polska",
+          "https://cert.pl/"
+        ],
+        [
+          "Niebezpiecznik",
+          "https://niebezpiecznik.pl/"
+        ]
+      ]
+    },
+    "PT": {
+      "name": "Portugal",
+      "flag": "🇵🇹",
+      "keywords": [
+        "portugal",
+        "portuguese",
+        "portugais",
+        "lisbon",
+        "lisbonne",
+        "lisboa"
+      ],
+      "links": [
+        [
+          "CNCS",
+          "https://www.cncs.gov.pt/"
+        ]
+      ]
+    },
+    "RO": {
+      "name": "Romania",
+      "flag": "🇷🇴",
+      "keywords": [
+        "romania",
+        "roumanie",
+        "romanian",
+        "roumain",
+        "bucharest",
+        "bucuresti"
+      ],
+      "links": [
+        [
+          "DNSC",
+          "https://dnsc.ro/"
+        ]
+      ]
+    },
+    "SK": {
+      "name": "Slovakia",
+      "flag": "🇸🇰",
+      "keywords": [
+        "slovakia",
+        "slovaquie",
+        "slovak",
+        "slovaque",
+        "bratislava"
+      ],
+      "links": [
+        [
+          "SK-CERT",
+          "https://www.sk-cert.sk/"
+        ]
+      ]
+    },
+    "SI": {
+      "name": "Slovenia",
+      "flag": "🇸🇮",
+      "keywords": [
+        "slovenia",
+        "slovénie",
+        "slovenie",
+        "slovenian",
+        "slovène",
+        "ljubljana"
+      ],
+      "links": [
+        [
+          "SI-CERT",
+          "https://www.cert.si/"
+        ]
+      ]
+    },
+    "ES": {
+      "name": "Spain",
+      "flag": "🇪🇸",
+      "keywords": [
+        "spain",
+        "espagne",
+        "spanish",
+        "espagnol",
+        "madrid",
+        "barcelona"
+      ],
+      "links": [
+        [
+          "INCIBE-CERT",
+          "https://www.incibe.es/"
+        ],
+        [
+          "CCN-CERT",
+          "https://www.ccn-cert.cni.es/"
+        ]
+      ]
+    },
+    "SE": {
+      "name": "Sweden",
+      "flag": "🇸🇪",
+      "keywords": [
+        "sweden",
+        "suède",
+        "suede",
+        "swedish",
+        "suédois",
+        "stockholm"
+      ],
+      "links": [
+        [
+          "CERT-SE",
+          "https://www.cert.se/"
+        ]
+      ]
+    },
+    "CH": {
+      "name": "Switzerland",
+      "flag": "🇨🇭",
+      "keywords": [
+        "switzerland",
+        "suisse",
+        "schweiz",
+        "svizzera",
+        "swiss",
+        "zurich",
+        "zürich"
+      ],
+      "links": [
+        [
+          "NCSC Switzerland",
+          "https://www.ncsc.admin.ch/"
+        ],
+        [
+          "SWITCH",
+          "https://www.switch.ch/"
+        ]
+      ]
+    },
+    "GB": {
+      "name": "United Kingdom",
+      "flag": "🇬🇧",
+      "keywords": [
+        "united kingdom",
+        "britain",
+        "great britain",
+        "england",
+        "royaume-uni",
+        "british",
+        "britannique",
+        "london",
+        "hursley",
+        "uk"
+      ],
+      "links": [
+        [
+          "NCSC UK",
+          "https://www.ncsc.gov.uk/"
+        ],
+        [
+          "The Register",
+          "https://www.theregister.com/security/"
+        ]
+      ]
+    }
+  },
+  "stack": {
+    "Box": [
+      "box drive",
+      "box.com",
+      "box cloud",
+      "box enterprise",
+      "box shield",
+      "box governance",
+      "box platform",
+      "box api",
+      "box ai",
+      "box inc"
+    ],
+    "Slack": [
+      "slack",
+      "slack connect",
+      "slackbot",
+      "salesforce slack"
+    ],
+    "Teams": [
+      "microsoft teams",
+      "ms teams",
+      "teams app",
+      "teams chat",
+      "teams meeting",
+      "teams phone",
+      "teams admin",
+      "teams client"
+    ],
+    "Outlook": [
+      "outlook",
+      "outlook web app",
+      "outlook.com",
+      "exchange online",
+      "owa"
+    ],
+    "Microsoft 365": [
+      "microsoft 365",
+      "office 365",
+      "m365",
+      "o365"
+    ],
+    "QRadar": [
+      "qradar",
+      "qradar siem",
+      "qradar soar",
+      "qradar edr",
+      "qradar log manager",
+      "qradar on cloud",
+      "ibm qradar"
+    ],
+    "Avigilon": [
+      "avigilon",
+      "avigilon unity",
+      "avigilon video",
+      "avigilon access control",
+      "avigilon alta",
+      "motorola avigilon"
+    ]
+  },
+  "targets": [
+    "microsoft exchange",
+    "exchange",
+    "office 365",
+    "microsoft 365",
+    "sharepoint",
+    "entra id",
+    "azure ad",
+    "okta",
+    "saml",
+    "oauth",
+    "vmware",
+    "esxi",
+    "vcenter",
+    "citrix",
+    "citrix adc",
+    "netscaler",
+    "fortinet",
+    "fortios",
+    "fortigate",
+    "palo alto",
+    "globalprotect",
+    "check point",
+    "checkpoint",
+    "ivanti",
+    "ivanti connect secure",
+    "ssl-vpn",
+    "weblogic",
+    "ofbiz",
+    "geoserver",
+    "tomcat",
+    "confluence",
+    "jenkins",
+    "gitlab",
+    "zabbix",
+    "teamcity",
+    "spring security",
+    "solr",
+    "apache http server",
+    "dubbo",
+    "coldfusion",
+    "big-ip",
+    "jira",
+    "manageengine",
+    "shiro",
+    "harbor",
+    "kafka ui",
+    "moveit",
+    "goanywhere",
+    "cleo",
+    "papercut",
+    "solarwinds",
+    "openclaw",
+    "langflow",
+    "n8n",
+    "vllm",
+    "cups",
+    "sap netweaver",
+    "sap commerce",
+    "oracle e-business suite",
+    "ibm websphere",
+    "ibm maximo",
+    "aspera",
+    "qradar",
+    "node.js",
+    "nodejs",
+    "x-force",
+    "xforce",
+    "supply chain",
+    "github actions",
+    "amag",
+    "symmetry",
+    "securitas",
+    "genetec",
+    "avigilon",
+    "voo",
+    "ores",
+    "anker",
+    "solix",
+    "tp-link",
+    "tplink",
+    "teamviewer"
+  ]
+}

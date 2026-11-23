@@ -3,8 +3,14 @@
 Plain functions only: they run under pytest (`python -m pytest -q`) and can also
 be called directly by a small runner, so no fixture is required.
 """
+import json
 import os
+import subprocess
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
 
 import veille
 
@@ -127,3 +133,82 @@ def test_build_subject_uses_iso_date_and_counts():
     # Sans rien de critique, le sujet reste l'identité et la date, sans chiffre inventé.
     calme = veille.build_subject(now, {"critical": 0, "campaigns": 0})
     assert calme.endswith("2026-11-22")
+
+
+# --- Périmètre éditable -----------------------------------------------------
+
+def test_configuration_absente_laisse_les_defauts(tmp_path):
+    assert veille.charger_configuration(tmp_path / "absent.json") == {}
+
+
+def test_configuration_json_invalide_est_refusee(tmp_path):
+    chemin = tmp_path / "config.json"
+    chemin.write_text("{ pas du json", encoding="utf-8")
+    with pytest.raises(veille.ConfigurationError, match="JSON invalide"):
+        veille.charger_configuration(chemin)
+
+
+def test_configuration_tolere_le_bom(tmp_path):
+    """PowerShell et Notepad écrivent un BOM UTF-8 : un config.json doit rester lisible."""
+    chemin = tmp_path / "config.json"
+    chemin.write_bytes('{"stack": {"GitLab": ["gitlab"]}}'.encode("utf-8-sig"))
+    lue = veille.valider_configuration(veille.charger_configuration(chemin))
+    assert lue["stack"]["GitLab"] == ["gitlab"]
+
+
+def test_configuration_ajoute_un_produit_sans_toucher_aux_autres():
+    avant = dict(veille.STACK_PRODUCTS)
+    try:
+        veille.appliquer_configuration(veille.valider_configuration(
+            {"stack": {"GitLab": ["gitlab", "gitlab runner"]}}))
+        assert veille.STACK_PRODUCTS["GitLab"] == ["gitlab", "gitlab runner"]
+        assert "Box" in veille.STACK_PRODUCTS, "les autres produits gardent leur valeur"
+    finally:
+        veille.STACK_PRODUCTS.clear()
+        veille.STACK_PRODUCTS.update(avant)
+
+
+def test_configuration_retire_une_entree():
+    avant = dict(veille.STACK_PRODUCTS)
+    try:
+        veille.appliquer_configuration(veille.valider_configuration({"stack": {"Box": None}}))
+        assert "Box" not in veille.STACK_PRODUCTS
+    finally:
+        veille.STACK_PRODUCTS.clear()
+        veille.STACK_PRODUCTS.update(avant)
+
+
+def test_configuration_refuse_une_section_inconnue():
+    with pytest.raises(veille.ConfigurationError, match="section inconnue"):
+        veille.valider_configuration({"stackk": {}})
+
+
+def test_configuration_refuse_un_pays_incomplet():
+    with pytest.raises(veille.ConfigurationError, match="manquant"):
+        veille.valider_configuration({"countries": {"ZZ": {"flag": "🏳"}}})
+
+
+def test_configuration_refuse_une_url_non_https():
+    with pytest.raises(veille.ConfigurationError, match="https"):
+        veille.valider_configuration({"countries": {"ZZ": {
+            "flag": "🏳", "name": "Zed", "keywords": ["zed"],
+            "links": [["CERT", "http://exemple.org"]]}}})
+
+
+def test_configuration_refuse_une_liste_vide():
+    with pytest.raises(veille.ConfigurationError, match="liste non vide"):
+        veille.valider_configuration({"targets": []})
+
+
+def test_configuration_lue_au_demarrage(tmp_path):
+    """Le vrai chemin : un config.json dans le répertoire courant, module importé."""
+    (tmp_path / "config.json").write_text(
+        json.dumps({"stack": {"GitLab": ["gitlab"]}}), encoding="utf-8")
+    racine = Path(__file__).resolve().parent.parent
+    code = ("import sys; sys.path.insert(0, %r); import veille; "
+            "print('GitLab' in veille.STACK_PRODUCTS, 'Box' in veille.STACK_PRODUCTS)"
+            % str(racine))
+    resultat = subprocess.run([sys.executable, "-c", code], cwd=tmp_path,
+                              capture_output=True, text=True)
+    assert resultat.returncode == 0, resultat.stderr
+    assert resultat.stdout.split() == ["True", "True"]

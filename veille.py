@@ -15,11 +15,13 @@ import json
 import logging
 import os
 import re
+import shutil
 import smtplib
 import socket
 import sqlite3
 import ssl
 import sys
+import tempfile
 import threading
 import time
 from collections import Counter
@@ -144,6 +146,15 @@ MAX_COUNTRY_FLAGS = 4            # au-delà, les drapeaux saturent la ligne de t
 MAX_STACK_PER_PRODUCT = 6        # rubrique « ta stack » : articles listés par produit
 MAX_STACK_ARTICLES = 24          # ... et au total
 SHOW_COUNTRY_LINKS = _env_bool("SHOW_COUNTRY_LINKS", True, "AFFICHER_LIENS_PAYS")
+
+# Aperçu : la même collecte et la même mise en page, mais rien n'est envoyé ni mémorisé.
+# Le chemin est résolu ici car l'aperçu s'exécute dans un dossier temporaire (voir
+# _preview_state), où les chemins relatifs d'état pointent vers une copie jetable.
+PREVIEW = "--preview" in sys.argv[1:] or _env_bool("PREVIEW", False)
+PREVIEW_OUT = os.path.abspath(_env_str("PREVIEW_OUT", "preview"))
+# Un rapport dégradé n'est pas un rapport : par défaut il ne part pas, et la journée reste
+# ouverte pour le passage suivant. SEND_IF_DEGRADED=1 rétablit l'ancien comportement.
+SEND_IF_DEGRADED = _env_bool("SEND_IF_DEGRADED", False)
 
 # Rempli par collect_cisa_kev : le catalogue KEV complet sert au classement des fournisseurs
 # et à la synchronisation de la base.
@@ -3673,8 +3684,46 @@ def apply_corroboration(groups: dict[str, list[Article]],
     return modifiees
 
 
+def degradation_reason(errors: list[str]) -> str | None:
+    """Pourquoi la veille est dégradée, ou None si elle est saine.
+
+    Sert deux fois, et c'est le point : avant l'envoi, pour ne pas expédier un rapport vide,
+    et après, pour que le run apparaisse en rouge. Les deux jugent sur les mêmes critères.
+    """
+    total_sources = len(RSS_SOURCES) + EXTRA_SOURCES
+    if total_sources - len(errors) <= 0:
+        return "No reachable source"
+    if len(errors) > total_sources * 0.3:
+        return f"{len(errors)}/{total_sources} sources in error: degraded watch"
+    if any(err.startswith("CISA KEV") for err in errors):
+        return "CISA KEV unavailable: degraded watch"
+    return None
+
+
+@contextlib.contextmanager
+def _preview_state():
+    """Travaille sur une copie jetable de l'état : un aperçu ne consomme rien.
+
+    Les fichiers d'état sont relatifs au répertoire courant : on copie ceux qui existent,
+    on se place dans le dossier temporaire, puis on revient. seen.json, stats.db et les
+    caches ne sont donc jamais touchés — sinon l'aperçu du matin amputerait le rapport du
+    lendemain en marquant les liens comme déjà vus.
+    """
+    ancien = os.getcwd()
+    with tempfile.TemporaryDirectory(prefix="veille-apercu-") as tmp:
+        for nom in (SEEN_FILE, DB_FILE, KEV_CACHE_FILE, METASPLOIT_CACHE_FILE):
+            source = Path(nom)
+            if source.exists():
+                shutil.copy2(source, Path(tmp) / source.name)
+        try:
+            os.chdir(tmp)
+            yield
+        finally:
+            os.chdir(ancien)
+
+
 def main() -> int:
-    config = validate_config()  # échoue tout de suite si un secret manque
+    config = None if PREVIEW else validate_config()  # l'aperçu n'envoie rien : pas de SMTP requis
     now = datetime.now(TZ)
     today = now.date().isoformat()
     previous = load_seen_links()
@@ -3776,7 +3825,7 @@ def main() -> int:
                     log.info("  score %2d %-2s [%s] %s%s", a.score, a.severity, a.source,
                              a.title[:90], f" ({m})" if m else "")
 
-        if not groups and not errors:
+        if not groups and not errors and not PREVIEW:
             log.info("Nothing new: no e-mail sent.")
             return 0
 
@@ -3854,6 +3903,20 @@ def main() -> int:
             log.warning("Report of %d KB: Gmail truncation risk",
                         (html_size + text_size) // 1000)
 
+        # Un rapport dégradé n'est pas un rapport : on ne l'envoie pas, et on n'inscrit pas
+        # la journée comme faite. Le créneau suivant réessaiera le même jour.
+        reason = degradation_reason(errors)
+        if reason and not SEND_IF_DEGRADED and not PREVIEW:
+            log.error("%s — no e-mail sent, the day stays open for a later run.", reason)
+            return 1
+
+        if PREVIEW:
+            for extension, corps in ((".html", html_report), (".txt", text_report)):
+                Path(PREVIEW_OUT + extension).write_text(corps, encoding="utf-8")
+            log.info("Preview: %s.html and %s.txt written, nothing sent, state untouched",
+                     PREVIEW_OUT, PREVIEW_OUT)
+            return 0
+
         send_email(config, subject, html_report, text_report)
         meta_set(conn, META_DERNIERE_VEILLE, today)
 
@@ -3867,16 +3930,9 @@ def main() -> int:
         store_stats(conn, groups, infos, today)
 
         # Code de sortie non nul si la veille est trop dégradée : le run apparaît en rouge.
-        total_sources = len(RSS_SOURCES) + EXTRA_SOURCES
-        sources_ok = total_sources - len(errors)
-        if sources_ok == 0:
-            log.error("No reachable source")
-            return 1
-        if len(errors) > total_sources * 0.3:
-            log.error("%d/%d sources in error: degraded watch", len(errors), total_sources)
-            return 1
-        if any(err.startswith("CISA KEV") for err in errors):
-            log.error("CISA KEV unavailable: degraded watch")
+        reason = degradation_reason(errors)
+        if reason:
+            log.error("%s", reason)
             return 1
         return 0
     finally:
@@ -4108,4 +4164,8 @@ if __name__ == "__main__":
         sys.exit(check_feeds())
     if "--check-links" in sys.argv or "--check-country-links" in sys.argv:
         sys.exit(check_country_links())
+    if PREVIEW:
+        # La copie jetable doit exister avant l'ouverture de la base : main() la lit d'entrée.
+        with _preview_state():
+            sys.exit(main())
     sys.exit(main_alert() if ALERT_MODE else main())

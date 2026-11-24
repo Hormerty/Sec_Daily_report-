@@ -639,7 +639,7 @@ def valider_configuration(brut: dict) -> dict:
     if "stack" in brut:
         stack = brut["stack"]
         if not isinstance(stack, dict):
-            raise ConfigurationError("stack: objet attendu (nom -> liste de locutions)")
+            raise ConfigurationError("stack: objet attendu (nom -> liste de mots-clés)")
         validee["stack"] = {
             nom: (None if mots is None else _liste_textes(mots, f"stack.{nom}"))
             for nom, mots in stack.items()

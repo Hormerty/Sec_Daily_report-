@@ -1212,6 +1212,25 @@ _TRADUCTIONS: dict[str, dict[str, str]] = {
         "júliusban": "in July",
         "augusztusában": "in August",
     },
+    "sk": {
+        # Le slovaque suit l'ordre sujet-verbe-objet : une table de mots suffit, contrairement
+        # au hongrois. Les formes longues passent d'abord (tri par longueur décroissante).
+        "Kritické zraniteľnosti": "Critical vulnerabilities",
+        "Kritická zraniteľnosť": "Critical vulnerability",
+        "kritické zraniteľnosti": "critical vulnerabilities",
+        "kritická zraniteľnosť": "critical vulnerability",
+        "VAROVANIE:": "WARNING:",
+        "Varovanie:": "Warning:",
+        "Útočníci aktívne zneužívajú": "Attackers actively exploit",
+        "riadiace systémy": "control systems",
+        "chladiarenské": "refrigeration",
+        " v jadre ": " in the kernel ",
+        "smerovačov": "routers",
+        "zraniteľnosti": "vulnerabilities",
+        "zraniteľnosť": "vulnerability",
+        " a EE": " and EE",
+        " v ": " in ",
+    },
 }
 
 # Les mois apparaissent en clair dans les titres CERT-FR (« 17 novembre 2026 ») et CSIRT Italia
@@ -1286,6 +1305,14 @@ _MOTIFS: dict[str, list[tuple[str, str]]] = {
         (r"^ALERTĂ: Vulnerabilități critice (?:la nivelul|în) (.+)$",
          "Alert: critical vulnerabilities in {0}"),
         (r"^ALERTĂ: (.+)$", "Alert: {0}"),
+    ],
+    "sk": [
+        # « Kritická zraniteľnosť TCP v jadre Linux » : la table de mots donnerait « in the
+        # kernel Linux » ; le motif replace « kernel » du bon côté.
+        (r"^Kritická zraniteľnosť (.+) v jadre Linux$",
+         "Critical vulnerability {0} in the Linux kernel"),
+        (r"^Kritické zraniteľnosti v jadre Linux$",
+         "Critical vulnerabilities in the Linux kernel"),
     ],
 }
 
@@ -1372,6 +1399,9 @@ RSS_SOURCES = [
     {"name": "NKI (Hongrie)", "url": "https://nki.gov.hu/figyelmeztetesek/riasztas/feed/", "category": ALERTS, "country": "HU", "translate": "hu", "require": "sérülékenység"},
     # DNSC : alertes « ALERTĂ », communiqués et revues hebdomadaires dans le même flux.
     {"name": "DNSC (Roumanie)", "url": "https://dnsc.ro/feed", "category": ALERTS, "country": "RO", "translate": "ro", "require": "ALERTĂ"},
+    # SK-CERT : le flux n'existe que sous cette forme encodée (%3F à la place de « ? »), et
+    # ses entrées ne portent aucune date — d'où « sans_date », qui les date à l'arrivée.
+    {"name": "SK-CERT (Slovaquie)", "url": "https://www.sk-cert.sk/index.html%3Ffeed=rss", "category": ALERTS, "country": "SK", "translate": "sk", "require": "zraniteľn", "sans_date": True},
     # NCSC-FI existe en finnois et en anglais : on prend l'anglais, aucun entretien de traduction.
     {"name": "NCSC-FI", "url": "https://www.kyberturvallisuuskeskus.fi/feed/rss/en", "category": ALERTS, "country": "FI"},
     {"name": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "category": ALERTS},
@@ -2280,7 +2310,12 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
     for entry in feed.entries:
         date = _entry_date(entry)
         if date is None:
-            continue
+            if not source.get("sans_date"):
+                continue
+            # Certains flux ne portent aucune date (SK-CERT) : les ignorer reviendrait à ne
+            # jamais les lire. On les date à l'arrivée ; la déduplication par lien empêche de
+            # republier les mêmes entrées, et ces flux tiennent en une dizaine d'éléments.
+            date = datetime.now(timezone.utc)
         if date < since:
             continue
         # Un article sans lien n'a pas de page à ouvrir : ne pas utiliser l'URL du flux.

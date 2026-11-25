@@ -32,6 +32,7 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 | RO | DNSC | `https://dnsc.ro/feed` | Romanian |
 | SE | CERT-SE | `https://www.cert.se/feed` | Swedish |
 | SI | SI-CERT | `https://www.cert.si/feed/` | Slovenian |
+| SK | SK-CERT | `https://www.sk-cert.sk/index.html%3Ffeed=rss` | Slovak |
 
 Non-English titles are translated by the phrase tables in `_TRADUCTIONS`, applied per source
 through the `translate` key. Those tables were written from real titles pulled from each feed,
@@ -50,6 +51,13 @@ roundup; `require: "ALERTĂ"` keeps the five alerts of a ten-entry feed and drop
 Titles are rewritten by patterns (« ALERTĂ: Vulnerabilitate critică la nivelul VMware » →
 « Alert: critical vulnerability in VMware »), and whitespace is normalised first because the
 feed sometimes writes a double space inside the formula.
+
+Two peculiarities of the Slovak SK-CERT feed are worth recording, because both would have
+silently emptied the source. Its address only works URL-encoded — `/index.html%3Ffeed=rss`,
+with `%3F` in place of `?`; the plain form answers 404. And its entries carry **no date at
+all**, which the collector treats as "skip"; the source therefore declares `sans_date: true`
+and is dated on arrival. Deduplication by link prevents the same entries from being published
+twice, and the feed holds only ten of them.
 
 CERT-FR publishes one combined feed (`/feed/`) whose content is identical to the advisories
 feed (`/avis/feed/`). Only the combined one is declared: keeping both fetched the same forty
@@ -82,7 +90,6 @@ items twice per run. Of the two separate alert feeds, `/alert/feed/` returns zer
 | IE | NCSC Ireland | No public RSS; news page only |
 | LT | NKSC | No public RSS; news page only |
 | PT | CNCS | Unreachable from the test network |
-| SK | SK-CERT | Feed link present but malformed |
 
 Third-party bridges (RSS.app and similar) are not an option: they make the watch depend on an
 unidentified service that can disappear, change its output, or relay altered content.

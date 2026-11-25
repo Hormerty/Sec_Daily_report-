@@ -366,3 +366,28 @@ def test_la_roumanie_est_filtree_sur_les_alertes():
 def test_reecriture_des_titres_roumains(titre, attendu):
     """La double espace de « identificate  la nivelul » ne doit pas faire échouer le motif."""
     assert veille.translate_title(titre, "ro") == attendu
+
+# --- Slovaquie : flux sans date et titre encodé -----------------------------------------
+
+def test_la_slovaquie_est_declaree_avec_ses_singularites():
+    """Le flux n'existe qu'encodé et ne porte aucune date : les deux doivent être déclarés."""
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "SK-CERT (Slovaquie)")
+
+    assert "%3Ffeed=rss" in source["url"], "l'adresse doit rester encodée"
+    assert source["sans_date"] is True
+    assert source["require"] == "zraniteľn"
+    assert source["translate"] == "sk"
+
+
+@pytest.mark.parametrize("titre, attendu", [
+    ("Kritická zraniteľnosť „NGINX2ROOT“", "Critical vulnerability „NGINX2ROOT“"),
+    ("Kritické zraniteľnosti v PHP", "Critical vulnerabilities in PHP"),
+    ("Kritická zraniteľnosť TCP v jadre Linux",
+     "Critical vulnerability TCP in the Linux kernel"),
+    ("VAROVANIE: Kritické zraniteľnosti GITLAB CE a EE",
+     "WARNING: Critical vulnerabilities GITLAB CE and EE"),
+    ("VAROVANIE: Útočníci aktívne zneužívajú zraniteľnosti MIKROTIK smerovačov",
+     "WARNING: Attackers actively exploit vulnerabilities MIKROTIK routers"),
+])
+def test_reecriture_des_titres_slovaques(titre, attendu):
+    assert veille.translate_title(titre, "sk") == attendu

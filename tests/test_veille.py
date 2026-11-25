@@ -432,3 +432,13 @@ def test_une_description_sans_titre_anglais_renvoie_none():
 def test_raison_courte_d_une_source_en_erreur(exception, attendu):
     """Le mail affichait l'exception complète ; il doit dire ce qui s'est passé."""
     assert veille._raison_courte(exception) == attendu
+
+# --- Irlande : flux anglophone, sans traduction -------------------------------------------
+
+def test_l_irlande_est_collectee_sans_traduction():
+    """NCSC Ireland publie en anglais avec les CVE : aucune table à entretenir."""
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "NCSC Ireland")
+
+    assert source["country"] == "IE"
+    assert "translate" not in source
+    assert source["url"].endswith("/news/alerts.rss")

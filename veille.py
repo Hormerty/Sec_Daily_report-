@@ -1405,6 +1405,8 @@ RSS_SOURCES = [
     {"name": "SK-CERT (Slovaquie)", "url": "https://www.sk-cert.sk/index.html%3Ffeed=rss", "category": ALERTS, "country": "SK", "translate": "sk", "require": "zraniteľn", "sans_date": True},
     # INCIBE : titres espagnols, mais chaque entrée porte son titre anglais dans la description.
     {"name": "INCIBE-CERT (Espagne)", "url": "https://www.incibe.es/en/incibe-cert/alerta-temprana/avisos/feed", "category": ALERTS, "country": "ES", "english_title": True},
+    # NCSC Ireland publie ses avis en anglais, avec les CVE : aucune traduction à appliquer.
+    {"name": "NCSC Ireland", "url": "https://www.ncsc.gov.ie/news/alerts.rss", "category": ALERTS, "country": "IE"},
     # NCSC-FI existe en finnois et en anglais : on prend l'anglais, aucun entretien de traduction.
     {"name": "NCSC-FI", "url": "https://www.kyberturvallisuuskeskus.fi/feed/rss/en", "category": ALERTS, "country": "FI"},
     {"name": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "category": ALERTS},

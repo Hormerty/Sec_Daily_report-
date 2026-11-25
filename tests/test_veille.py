@@ -339,3 +339,30 @@ def test_le_filtre_par_source_laisse_passer_un_avis_et_ecarte_une_campagne():
 
     assert source_avec_filtre["require"] in avis.casefold()
     assert source_avec_filtre["require"] not in campagne.casefold()
+
+# --- Roumanie : filtre sur les alertes et réécriture des formules --------------------------
+
+def test_la_roumanie_est_filtree_sur_les_alertes():
+    """DNSC publie alertes, communiqués et revues hebdomadaires dans le même flux."""
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "DNSC (Roumanie)")
+
+    assert source["country"] == "RO"
+    assert source["translate"] == "ro"
+    assert source["require"] == "ALERTĂ"
+
+
+@pytest.mark.parametrize("titre, attendu", [
+    ("ALERTĂ: Vulnerabilitate critică la nivelul VMware",
+     "Alert: critical vulnerability in VMware"),
+    ("ALERTĂ: Vulnerabilitate critică la nivelul unei biblioteci Node.js",
+     "Alert: critical vulnerability in a Node.js library"),
+    ("ALERTĂ: Vulnerabilități critice identificate  la nivelul NGINX",
+     "Alert: critical vulnerabilities identified in NGINX"),
+    ("ALERTĂ: Vulnerabilități critice exploatate activ în Synology",
+     "Alert: critical vulnerabilities actively exploited in Synology"),
+    ("ALERTĂ: Vulnerabilități critice la nivelul NGINX",
+     "Alert: critical vulnerabilities in NGINX"),
+])
+def test_reecriture_des_titres_roumains(titre, attendu):
+    """La double espace de « identificate  la nivelul » ne doit pas faire échouer le motif."""
+    assert veille.translate_title(titre, "ro") == attendu

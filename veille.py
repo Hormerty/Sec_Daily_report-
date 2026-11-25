@@ -1272,11 +1272,29 @@ _MOTIFS: dict[str, list[tuple[str, str]]] = {
         (r"^Riasztás (?:az|a) (.+?) sérülékenységeiről$", "Alert: vulnerabilities in {0}"),
         (r"^Riasztás (?:az|a) (.+?) sérülékenységéről$", "Alert: vulnerability in {0}"),
     ],
+    "ro": [
+        # DNSC mêle alertes, communiqués et revues hebdomadaires ; le filtre de source ne garde
+        # que les lignes « ALERTĂ ». Les motifs ci-dessous réordonnent la formule roumaine.
+        (r"^ALERTĂ: Vulnerabilitate critică la nivelul unei biblioteci (.+)$",
+         "Alert: critical vulnerability in a {0} library"),
+        (r"^ALERTĂ: Vulnerabilități critice identificate (?:la nivelul|în) (.+)$",
+         "Alert: critical vulnerabilities identified in {0}"),
+        (r"^ALERTĂ: Vulnerabilități critice exploatate activ (?:la nivelul|în) (.+)$",
+         "Alert: critical vulnerabilities actively exploited in {0}"),
+        (r"^ALERTĂ: Vulnerabilitate critică (?:la nivelul|în) (.+)$",
+         "Alert: critical vulnerability in {0}"),
+        (r"^ALERTĂ: Vulnerabilități critice (?:la nivelul|în) (.+)$",
+         "Alert: critical vulnerabilities in {0}"),
+        (r"^ALERTĂ: (.+)$", "Alert: {0}"),
+    ],
 }
 
 
 def translate_title(title: str, langue: str = "de") -> str:
     """Traduit les locutions d'un titre d'avis, sans toucher au nom du produit."""
+    # Certains flux laissent des espaces doubles (« identificate  la nivelul NGINX ») : les
+    # motifs ne les prévoyaient pas, et la ligne retombait en roumain.
+    title = re.sub(r"\s+", " ", title.strip())
     for motif, gabarit in _MOTIFS.get(langue, ()):
         trouve = re.match(motif, title.strip())
         if trouve:
@@ -1352,6 +1370,8 @@ RSS_SOURCES = [
     # NKI : le flux mêle avis techniques et campagnes de sensibilisation hongroises. « require »
     # ne garde que les titres qui parlent de vulnérabilité (sérülékenység), avant traduction.
     {"name": "NKI (Hongrie)", "url": "https://nki.gov.hu/figyelmeztetesek/riasztas/feed/", "category": ALERTS, "country": "HU", "translate": "hu", "require": "sérülékenység"},
+    # DNSC : alertes « ALERTĂ », communiqués et revues hebdomadaires dans le même flux.
+    {"name": "DNSC (Roumanie)", "url": "https://dnsc.ro/feed", "category": ALERTS, "country": "RO", "translate": "ro", "require": "ALERTĂ"},
     # NCSC-FI existe en finnois et en anglais : on prend l'anglais, aucun entretien de traduction.
     {"name": "NCSC-FI", "url": "https://www.kyberturvallisuuskeskus.fi/feed/rss/en", "category": ALERTS, "country": "FI"},
     {"name": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "category": ALERTS},

@@ -29,6 +29,7 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 | NL | NCSC-NL | `https://advisories.ncsc.nl/rss/advisories` | Dutch |
 | NO | NSM | `https://nsm.no/rss/sarbarhetsvarsler-fra-nsm/` | Norwegian |
 | PL | CERT Polska | `https://cert.pl/rss.xml` | Polish |
+| RO | DNSC | `https://dnsc.ro/feed` | Romanian |
 | SE | CERT-SE | `https://www.cert.se/feed` | Swedish |
 | SI | SI-CERT | `https://www.cert.si/feed/` | Slovenian |
 
@@ -43,6 +44,12 @@ product and place it into an English template. Because NKI also publishes awaren
 and phishing notices, the source declares `require: "sérülékenység"`: an item is kept only if
 its title mentions a vulnerability. On the feed as measured, that keeps seventeen of twenty
 entries and translates all seventeen.
+
+The Romanian DNSC feed mixes vulnerability alerts with press releases and a weekly news
+roundup; `require: "ALERTĂ"` keeps the five alerts of a ten-entry feed and drops the rest.
+Titles are rewritten by patterns (« ALERTĂ: Vulnerabilitate critică la nivelul VMware » →
+« Alert: critical vulnerability in VMware »), and whitespace is normalised first because the
+feed sometimes writes a double space inside the formula.
 
 CERT-FR publishes one combined feed (`/feed/`) whose content is identical to the advisories
 feed (`/avis/feed/`). Only the combined one is declared: keeping both fetched the same forty
@@ -75,7 +82,6 @@ items twice per run. Of the two separate alert feeds, `/alert/feed/` returns zer
 | IE | NCSC Ireland | No public RSS; news page only |
 | LT | NKSC | No public RSS; news page only |
 | PT | CNCS | Unreachable from the test network |
-| RO | DNSC | Unreachable from the test network |
 | SK | SK-CERT | Feed link present but malformed |
 
 Third-party bridges (RSS.app and similar) are not an option: they make the watch depend on an

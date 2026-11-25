@@ -1402,6 +1402,8 @@ RSS_SOURCES = [
     # SK-CERT : le flux n'existe que sous cette forme encodée (%3F à la place de « ? »), et
     # ses entrées ne portent aucune date — d'où « sans_date », qui les date à l'arrivée.
     {"name": "SK-CERT (Slovaquie)", "url": "https://www.sk-cert.sk/index.html%3Ffeed=rss", "category": ALERTS, "country": "SK", "translate": "sk", "require": "zraniteľn", "sans_date": True},
+    # INCIBE : titres espagnols, mais chaque entrée porte son titre anglais dans la description.
+    {"name": "INCIBE-CERT (Espagne)", "url": "https://www.incibe.es/en/incibe-cert/alerta-temprana/avisos/feed", "category": ALERTS, "country": "ES", "english_title": True},
     # NCSC-FI existe en finnois et en anglais : on prend l'anglais, aucun entretien de traduction.
     {"name": "NCSC-FI", "url": "https://www.kyberturvallisuuskeskus.fi/feed/rss/en", "category": ALERTS, "country": "FI"},
     {"name": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "category": ALERTS},
@@ -2238,6 +2240,23 @@ def _redirect_target(source: dict, response) -> str | None:
     return None
 
 
+def _titre_anglais(entry) -> str | None:
+    """Titre anglais porté dans la description, pour les flux qui en publient un.
+
+    INCIBE-CERT (Espagne) titre en espagnol mais place, dans la description, un champ
+    « field--name-title » qui contient le même titre en anglais. L'extraire vaut mieux que le
+    traduire : la formule espagnole intercale sa grammaire entre les mots et aucun remplacement
+    de locutions ne la remet dans l'ordre anglais.
+    """
+    brut = html.unescape(str(entry.get("description") or entry.get("summary") or ""))
+    trouve = re.search(r"field--name-title[^>]*>(.*?)</span>", brut, re.S)
+    if not trouve:
+        return None
+    titre = re.sub(r"<[^>]+>", " ", trouve.group(1))
+    titre = re.sub(r"\s+", " ", titre).strip()
+    return titre or None
+
+
 def _entry_date(entry) -> datetime | None:
     """Date d'une entrée, avec repli sur les formats non conformes.
 
@@ -2335,6 +2354,12 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             titre = re.sub(r"<[^>]+>", " ", html.unescape(texte))
             titre = re.sub(r"\s+", " ", titre).strip()
         title = (titre or "Untitled item")[:300]
+        # Certains flux publient eux-mêmes le titre anglais dans leur description : le lire
+        # est plus sûr que le reconstruire par traduction.
+        if source.get("english_title"):
+            anglais = _titre_anglais(entry)
+            if anglais:
+                title = anglais[:300]
         # « require » : le titre doit contenir ce fragment pour être retenu. Certains CERT
         # mêlent avis techniques et campagnes de sensibilisation ; le filtre les sépare sans
         # dépendre de la langue. Il s'applique AVANT la traduction, qui peut effacer le mot.

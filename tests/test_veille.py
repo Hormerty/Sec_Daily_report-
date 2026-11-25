@@ -391,3 +391,28 @@ def test_la_slovaquie_est_declaree_avec_ses_singularites():
 ])
 def test_reecriture_des_titres_slovaques(titre, attendu):
     assert veille.translate_title(titre, "sk") == attendu
+
+# --- Espagne : titre anglais lu dans la description --------------------------------------
+
+def test_l_espagne_lit_son_titre_anglais_au_lieu_de_le_traduire():
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "INCIBE-CERT (Espagne)")
+
+    assert source["country"] == "ES"
+    assert source.get("english_title") is True
+    assert not source.get("translate"), "l'Espagne n'a pas besoin de table de traduction"
+
+
+def test_extraction_du_titre_anglais_echappe_dans_la_description():
+    """Le flux INCIBE double-échappe son HTML : l'extraction doit traverser les entités."""
+    entree = {"description": (
+        '&lt;span class="field field--name-title field--type-string field--label-hidden"&gt;'
+        'Multiple vulnerabilities in the Vorecol web platform&lt;/span&gt;'
+        '&lt;span class="field"&gt;Multiple vulnerabilities in the Vorecol web platform&lt;/span&gt;')}
+
+    assert veille._titre_anglais(entree) == \
+        "Multiple vulnerabilities in the Vorecol web platform"
+
+
+def test_une_description_sans_titre_anglais_renvoie_none():
+    assert veille._titre_anglais({"description": "<p>Description ordinaire</p>"}) is None
+    assert veille._titre_anglais({}) is None

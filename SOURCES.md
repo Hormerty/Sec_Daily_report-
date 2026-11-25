@@ -18,6 +18,7 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 | BE | CCB | `https://ccb.belgium.be/advisories.xml` | English |
 | BE | Safeonweb | `https://safeonweb.be/fr/rss.xml` | French |
 | DE | BSI CERT-Bund | `https://wid.cert-bund.de/content/public/securityAdvisory/rss` | German |
+| ES | INCIBE-CERT | `https://www.incibe.es/en/incibe-cert/alerta-temprana/avisos/feed` | Spanish titles, English title inside the description |
 | EU | CERT-EU | `https://cert.europa.eu/publications/security-advisories-rss` | English |
 | FI | NCSC-FI | `https://www.kyberturvallisuuskeskus.fi/feed/rss/en` | English |
 | FR | CERT-FR | `https://cert.cyber.gouv.fr/feed/` | French |
@@ -66,9 +67,7 @@ items twice per run. Of the two separate alert feeds, `/alert/feed/` returns zer
 
 ## Verified, integration pending
 
-| Country | Authority | Feed | Notes |
-|---|---|---|---|
-| ES | INCIBE-CERT | `https://www.incibe.es/en/incibe-cert/alerta-temprana/avisos/feed` | Spanish titles, but the feed carries an **English title** inside the description (`field--name-title`); extract it rather than translating |
+Nothing at present.
 
 ## Deliberately excluded
 

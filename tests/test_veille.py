@@ -212,3 +212,83 @@ def test_configuration_lue_au_demarrage(tmp_path):
                               capture_output=True, text=True)
     assert resultat.returncode == 0, resultat.stderr
     assert resultat.stdout.split() == ["True", "True"]
+
+# --- CERT nationaux : présence et traduction des titres -------------------------------------
+
+def test_les_cert_nationaux_ajoutes_sont_declares():
+    """Cinq CERT entraient dans le périmètre : ils doivent être déclarés, avec leur pays."""
+    attendus = {
+        "CSIRT Italia": ("IT", "it"),
+        "CIRCL (Luxembourg)": ("LU", None),
+        "CERT.at": ("AT", "de"),
+        "NSM (Norvège)": ("NO", "no"),
+        "NCSC-FI": ("FI", None),
+    }
+    par_nom = {source["name"]: source for source in veille.RSS_SOURCES}
+
+    for nom, (pays, langue) in attendus.items():
+        assert nom in par_nom, f"{nom} absent de RSS_SOURCES"
+        assert par_nom[nom]["country"] == pays
+        assert par_nom[nom]["category"] == veille.ALERTS
+        assert par_nom[nom].get("translate") == langue, f"{nom} : langue de traduction"
+
+
+def test_les_cert_traduits_ne_sont_pas_oublies():
+    """Un flux non anglophone sans traduction afficherait du texte brut dans le rapport."""
+    non_anglophones = {
+        "CERT-FR avis": "fr", "CERT-FR": "fr", "NCSC-NL": "nl", "CERT Polska": "pl",
+        "SI-CERT": "sl", "CERT-SE": "sv", "CERT.hr": "hr", "BSI CERT-Bund": "de",
+        "CSIRT Italia": "it", "CERT.at": "de", "NSM (Norvège)": "no",
+    }
+    par_nom = {source["name"]: source for source in veille.RSS_SOURCES}
+
+    for nom, langue in non_anglophones.items():
+        assert par_nom[nom].get("translate") == langue, f"{nom} devrait être traduit depuis {langue}"
+
+
+@pytest.mark.parametrize("titre, langue, attendu", [
+    ("Multiples vulnérabilités dans les produits Splunk (19 novembre 2026)", "fr",
+     "Multiple vulnerabilities in Splunk (19 November 2026)"),
+    ("Vulnérabilité dans les produits Elastic", "fr", "Vulnerability in Elastic"),
+    ("Kwetsbaarheden verholpen in PHP", "nl", "Vulnerabilities fixed in PHP"),
+    ("Kwetsbaarheid verholpen in OTRS", "nl", "Vulnerability fixed in OTRS"),
+    ("Podatność w oprogramowaniu Bludit", "pl", "Vulnerability in software Bludit"),
+    ("Podatności w oprogramowaniu LMS", "pl", "Vulnerabilities in software LMS"),
+    ("SI-CERT 2026-09 / Kritične ranljivosti v spletnem strežniku NGINX", "sl",
+     "SI-CERT 2026-09 / Critical vulnerabilities in web server NGINX"),
+    ("Allvarliga sårbarheter i NGINX", "sv", "Serious vulnerabilities in NGINX"),
+    ("Kritisk sårbarhet i Apache Axis", "sv", "Critical vulnerability in Apache Axis"),
+    ("[VAŽNO] KRITIČNE RANJIVOSTI NGINX", "hr", "[IMPORTANT] CRITICAL VULNERABILITIES NGINX"),
+    ("Risolte vulnerabilità in Drupal", "it", "Vulnerabilities fixed in Drupal"),
+    ("Adobe: aggiornamenti di sicurezza", "it", "Adobe: security updates"),
+    ("Rilevato sfruttamento attivo in rete della CVE-2026-131914", "it",
+     "Active exploitation detected in the wild for CVE-2026-131914"),
+    ("Flere kritiske sårbarheter i NGINX og BIG-IP", "no",
+     "Several critical vulnerabilities in NGINX and BIG-IP"),
+    ("Microsoft patchetirsdag november 2026", "no", "Microsoft Patch Tuesday november 2026"),
+    ("Kritische Sicherheitslücken in PHP - Updates verfügbar", "de",
+     "Critical vulnerabilities in PHP - updates available"),
+    ("[NEU] [hoch] OpenSSL: Mehrere Schwachstellen", "de",
+     "[NEW] [high] OpenSSL: Multiple vulnerabilities"),
+])
+def test_traduction_des_titres_cert(titre, langue, attendu):
+    assert veille.translate_title(titre, langue) == attendu
+
+
+def test_traduction_laisse_intact_un_nom_de_produit():
+    """« Cisco » et « Citrix NetScaler » ne doivent pas être touchés par les locutions."""
+    titre = "Kritische Sicherheitslücke in Citrix NetScaler ADC - Updates verfügbar"
+
+    traduit = veille.translate_title(titre, "de")
+
+    assert "Citrix NetScaler ADC" in traduit
+    assert traduit.startswith("Critical vulnerability in")
+
+
+def test_une_langue_sans_table_ne_change_rien():
+    assert veille.translate_title("Vulnerabilities in PHP", "xx") == "Vulnerabilities in PHP"
+
+
+def test_translate_german_reste_compatible():
+    """La fonction d'origine est conservée : d'autres appelants peuvent s'y fier."""
+    assert veille.translate_german("Schwachstelle in PHP") == "Vulnerability in PHP"

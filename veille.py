@@ -1018,48 +1018,208 @@ def is_relevant(text: str) -> bool:
     return bool(RE_FILTER_ROOTS.search(text) or RE_FILTER_WORDS.search(text))
 
 
-# Traduction locale des avis BSI : leurs titres suivent une formule fixe (« [NEU] [hoch] Produit :
-# Schwachstelle ermöglicht … »), donc un simple remplacement de locutions suffit. Aucune API, aucun
-# quota, aucune dépendance — et le nom du produit reste intact. Les locutions longues passent en
-# premier pour ne pas être tronquées par une plus courte.
-_DE_EN = {
-    "[NEU]": "[NEW]", "[UPDATE]": "[UPDATED]", "[UNGEPATCHT]": "[UNPATCHED]",
-    "[kritisch]": "[critical]", "[hoch]": "[high]",
-    "[mittel]": "[medium]", "[niedrig]": "[low]",
-    "Mehrere Schwachstellen ermöglichen": "Multiple vulnerabilities allow",
-    "Mehrere Schwachstellen": "Multiple vulnerabilities",
-    "Schwachstelle ermöglicht": "Vulnerability allows",
-    "Schwachstelle in": "Vulnerability in",
-    "Offenlegung von Informationen": "disclosure of information",
-    "Preisgabe von Informationen": "exposure of information",
-    "Umgehen von Sicherheitsvorkehrungen": "bypass of security controls",
-    "Ausführen von beliebigem Code": "arbitrary code execution",
-    "beliebigen Code ausführen": "execute arbitrary code",
-    "Privilegieneskalation": "privilege escalation",
-    "Sicherheitsvorkehrungen": "security controls",
-    "Cross-Site-Scripting": "cross-site scripting",
-    "Schwachstellen": "vulnerabilities",
-    "Schwachstelle": "vulnerability",
-    "Sicherheitslücke": "security flaw",
-    "Denial of Service": "denial of service",
-    "Manipulation von Dateien": "file manipulation",
-    "Angreifer": "attackers",
-    "ermöglicht": "allows",
-    "Umgehen": "bypass",
-    # Connecteurs, avec espaces pour ne pas casser un nom de produit (« Juniper und Cisco »).
-    " und ": " and ",
-    " für ": " for ",
-    " mit ": " with ",
+# Traduction locale des titres d'avis. Chaque CERT national suit une formule fixe (« Kwetsbaarheid
+# verholpen in X », « Podatność w oprogramowaniu X », « Risolte vulnerabilità in X »), donc un
+# simple remplacement de locutions suffit. Aucune API, aucun quota, aucune dépendance — et le nom
+# du produit reste intact. Les locutions longues passent en premier pour ne pas être tronquées par
+# une plus courte.
+_TRADUCTIONS: dict[str, dict[str, str]] = {
+    "de": {
+        "[NEU]": "[NEW]", "[UPDATE]": "[UPDATED]", "[UNGEPATCHT]": "[UNPATCHED]",
+        "[kritisch]": "[critical]", "[hoch]": "[high]",
+        "[mittel]": "[medium]", "[niedrig]": "[low]",
+        "Kritische Sicherheitslücken": "Critical vulnerabilities",
+        "Kritische Sicherheitslücke": "Critical vulnerability",
+        "Weitere kritische Sicherheitslücke": "Another critical vulnerability",
+        "Aktive Ausnutzung": "Active exploitation",
+        "aktiv ausgenutzt": "actively exploited",
+        "Updates verfügbar": "updates available",
+        "Mehrere Schwachstellen ermöglichen": "Multiple vulnerabilities allow",
+        "Mehrere Schwachstellen": "Multiple vulnerabilities",
+        "Schwachstelle ermöglicht": "Vulnerability allows",
+        "Schwachstelle in": "Vulnerability in",
+        "Sicherheitslücken": "vulnerabilities",
+        "Sicherheitslücke": "vulnerability",
+        "Offenlegung von Informationen": "disclosure of information",
+        "Preisgabe von Informationen": "exposure of information",
+        "Umgehen von Sicherheitsvorkehrungen": "bypass of security controls",
+        "Ausführen von beliebigem Code": "arbitrary code execution",
+        "beliebigen Code ausführen": "execute arbitrary code",
+        "Codeausführung": "code execution",
+        "Privilegieneskalation": "privilege escalation",
+        "Sicherheitsvorkehrungen": "security controls",
+        "Cross-Site-Scripting": "cross-site scripting",
+        "Schwachstellen": "vulnerabilities",
+        "Schwachstelle": "vulnerability",
+        "Denial of Service": "denial of service",
+        "Manipulation von Dateien": "file manipulation",
+        "Angreifer": "attackers",
+        "ermöglicht": "allows",
+        "Umgehen": "bypass",
+        # Connecteurs, avec espaces pour ne pas casser un nom de produit (« Juniper und Cisco »).
+        " und ": " and ",
+        " für ": " for ",
+        " mit ": " with ",
+    },
+    "fr": {
+        "Multiples vulnérabilités dans les produits": "Multiple vulnerabilities in",
+        "Multiples vulnérabilités dans": "Multiple vulnerabilities in",
+        "Vulnérabilités dans les produits": "Vulnerabilities in",
+        "Vulnérabilité dans les produits": "Vulnerability in",
+        "Multiples vulnérabilités": "Multiple vulnerabilities",
+        "Vulnérabilités": "Vulnerabilities",
+        "Vulnérabilité": "Vulnerability",
+        "vulnérabilités": "vulnerabilities",
+        "vulnérabilité": "vulnerability",
+        " dans les produits ": " in ",
+        " dans ": " in ",
+        "Alerte": "Alert",
+        "Avis": "Advisory",
+    },
+    "nl": {
+        "Kwetsbaarheden verholpen in": "Vulnerabilities fixed in",
+        "Kwetsbaarheid verholpen in": "Vulnerability fixed in",
+        "Kwetsbaarheden": "Vulnerabilities",
+        "Kwetsbaarheid": "Vulnerability",
+        "verholpen": "fixed",
+        "-producten": " products",
+        "producten": "products",
+        " in ": " in ",
+    },
+    "pl": {
+        "Podatności w oprogramowaniu": "Vulnerabilities in software",
+        "Podatność w oprogramowaniu": "Vulnerability in software",
+        "Podatności": "Vulnerabilities",
+        "Podatność": "Vulnerability",
+        "podatności": "vulnerabilities",
+        "podatność": "vulnerability",
+        "oprogramowaniu": "software",
+    },
+    "sl": {
+        "Kritične ranljivosti v spletnem strežniku": "Critical vulnerabilities in web server",
+        "Kritične ranljivosti v": "Critical vulnerabilities in",
+        "Kritična ranljivost v": "Critical vulnerability in",
+        "Kritične ranljivosti": "Critical vulnerabilities",
+        "Kritična ranljivost": "Critical vulnerability",
+        "ranljivosti": "vulnerabilities",
+        "ranljivost": "vulnerability",
+        "spletnem strežniku": "web server",
+        " v ": " in ",
+    },
+    "sv": {
+        "Allvarliga sårbarheter i": "Serious vulnerabilities in",
+        "Allvarlig sårbarhet i": "Serious vulnerability in",
+        "Kritiska sårbarheter i": "Critical vulnerabilities in",
+        "Kritisk sårbarhet i": "Critical vulnerability in",
+        "Allvarliga sårbarheter": "Serious vulnerabilities",
+        "Allvarlig sårbarhet": "Serious vulnerability",
+        "Kritiska sårbarheter": "Critical vulnerabilities",
+        "Kritisk sårbarhet": "Critical vulnerability",
+        "sårbarheter": "vulnerabilities",
+        "sårbarhet": "vulnerability",
+        "Uppmaning till": "Call for",
+        "Patchtisdag": "Patch Tuesday",
+        "veckobrev": "weekly newsletter",
+        " i ": " in ",
+    },
+    "hr": {
+        "KRITIČNE RANJIVOSTI": "CRITICAL VULNERABILITIES",
+        "Kritične ranjivosti": "Critical vulnerabilities",
+        "kritične ranjivosti": "critical vulnerabilities",
+        "ranjivosti": "vulnerabilities",
+        "ranjivost": "vulnerability",
+        "[VAŽNO]": "[IMPORTANT]",
+        "Sigurnosna ažuriranja": "Security updates",
+        "sigurnosna ažuriranja": "security updates",
+        "dostupna": "available",
+        "Lažne": "Fake",
+        "poruke": "messages",
+        "upozorava": "warns",
+        " za ": " for ",
+    },
+    "it": {
+        "Risolte vulnerabilità in prodotti": "Vulnerabilities fixed in",
+        "Rilevate vulnerabilità in prodotti": "Vulnerabilities found in",
+        "Rilevata vulnerabilità in prodotti": "Vulnerability found in",
+        "Rilevato sfruttamento attivo in rete della": "Active exploitation detected in the wild for",
+        "Rilevato sfruttamento attivo in rete": "Active exploitation detected in the wild",
+        "sfruttamento attivo in rete": "active exploitation in the wild",
+        "Aggiornamenti di sicurezza per prodotti": "Security updates for",
+        "Aggiornamenti di sicurezza per": "Security updates for",
+        "Aggiornamenti di sicurezza": "Security updates",
+        "Aggiornamento di sicurezza": "Security update",
+        "Risolte vulnerabilità": "Vulnerabilities fixed",
+        "Rilevate vulnerabilità": "Vulnerabilities found",
+        "Rilevata vulnerabilità": "Vulnerability found",
+        "Vulnerabilità in prodotti": "Vulnerabilities in",
+        "vulnerabilità": "vulnerabilities",
+        "Vulnerabilità": "Vulnerabilities",
+        " in prodotti": " in",
+        "Disponibile": "Available",
+        "disponibile": "available",
+        # Variantes minuscules : après un nom d'éditeur, le titre reprend en bas de casse
+        # (« Adobe: aggiornamenti di sicurezza »). Les locutions longues passent d'abord, donc
+        # ces entrées ne tronquent pas les formes capitalisées.
+        "aggiornamenti di sicurezza per prodotti": "security updates for",
+        "aggiornamenti di sicurezza": "security updates",
+        "aggiornamento di sicurezza": "security update",
+        "risolte vulnerabilità": "vulnerabilities fixed",
+        "rilevate vulnerabilità": "vulnerabilities found",
+        "rilevato sfruttamento attivo in rete": "active exploitation detected in the wild",
+        "vulnerabilità in prodotti": "vulnerabilities in",
+    },
+    "no": {
+        "Flere kritiske sårbarheter i": "Several critical vulnerabilities in",
+        "To kritiske sårbarheter i": "Two critical vulnerabilities in",
+        "Microsoft patchetirsdag": "Microsoft Patch Tuesday",
+        "Oppdatert varsel:": "Updated advisory:",
+        "Sikkerhetsoppdatering tilgjengelig for": "Security update available for",
+        "Ny sårbarhet i": "New vulnerability in",
+        "observert aktivt utnyttet": "observed actively exploited",
+        "Aktivt utnyttelse av": "Active exploitation of",
+        "kritiske sårbarheter": "critical vulnerabilities",
+        "kritisk sårbarhet": "critical vulnerability",
+        "aktivt utnyttet": "actively exploited",
+        "sårbarheter": "vulnerabilities",
+        "sårbarhet": "vulnerability",
+        "tiltak mot": "measures against",
+        "deler": "shares",
+        " og ": " and ",
+    },
 }
-_DE_TERMS = tuple(sorted(_DE_EN.items(), key=lambda kv: -len(kv[0])))
+
+# Les mois apparaissent en clair dans les titres CERT-FR (« 17 novembre 2026 ») et CSIRT Italia
+# (« ottobre 2026 ») : sans eux, la traduction laisserait une date à moitié française.
+_MOIS: dict[str, dict[str, str]] = {
+    "fr": {"janvier": "January", "février": "February", "mars": "March", "avril": "April",
+           "mai": "May", "juin": "June", "juillet": "July", "août": "August",
+           "septembre": "September", "octobre": "October", "novembre": "November",
+           "décembre": "December"},
+    "it": {"gennaio": "January", "febbraio": "February", "marzo": "March", "aprile": "April",
+           "maggio": "May", "giugno": "June", "luglio": "July", "agosto": "August",
+           "settembre": "September", "ottobre": "October", "novembre": "November",
+           "dicembre": "December"},
+    "de": {"Januar": "January", "Februar": "February", "März": "March", "Mai": "May",
+           "Juni": "June", "Juli": "July", "Oktober": "October", "Dezember": "December"},
+}
+
+_TERMES = {langue: tuple(sorted(table.items(), key=lambda kv: -len(kv[0])))
+           for langue, table in _TRADUCTIONS.items()}
+
+
+def translate_title(title: str, langue: str = "de") -> str:
+    """Traduit les locutions d'un titre d'avis, sans toucher au nom du produit."""
+    for source, cible in _TERMES.get(langue, ()):
+        if source in title:
+            title = title.replace(source, cible)
+    for mois, anglais in _MOIS.get(langue, {}).items():
+        title = re.sub(rf"\b{mois}\b", anglais, title)
+    return title
 
 
 def translate_german(title: str) -> str:
-    """Traduit les locutions allemandes d'un titre d'avis, sans toucher au nom du produit."""
-    for de, en in _DE_TERMS:
-        if de in title:
-            title = title.replace(de, en)
-    return title
+    """Compatibilité : l'allemand restait le seul cas traduit avant l'ouverture aux autres CERT."""
+    return translate_title(title, "de")
 
 
 ALERTS = "Alerts & Vulnerabilities"
@@ -1095,24 +1255,36 @@ EXTRA_SOURCES = len(EXTRA_SOURCE_NAMES)
 
 # Une source en erreur n'empêche pas le rapport : elle apparaît dans le bandeau jaune du mail.
 RSS_SOURCES = [
-    # CERT & autorités
-    {"name": "CERT-FR avis", "url": "https://cert.cyber.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR"},
+    # CERT & autorités. Les titres des CERT non anglophones suivent des formules fixes : la clé
+    # « translate » nomme la table de locutions à appliquer (voir _TRADUCTIONS), pour que le flux
+    # reste lisible en anglais sans toucher au nom du produit.
+    {"name": "CERT-FR avis", "url": "https://cert.cyber.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR", "translate": "fr"},
     # Le flux combine du nouveau domaine rend avis, alertes, actualite et rapports CTI ; celui de
     # l'ancienne adresse /alerte/feed/ ne produisait plus rien depuis des mois.
-    {"name": "CERT-FR", "url": "https://cert.cyber.gouv.fr/feed/", "category": ALERTS, "country": "FR"},
+    {"name": "CERT-FR", "url": "https://cert.cyber.gouv.fr/feed/", "category": ALERTS, "country": "FR", "translate": "fr"},
     {"name": "CERT-EU", "url": "https://cert.europa.eu/publications/security-advisories-rss", "category": ALERTS, "country": "EU"},
     {"name": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "category": ALERTS},
     {"name": "NCSC UK", "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "category": ALERTS, "country": "GB"},
+    # CSIRT Italia : le flux du CSIRT, hébergé par l'ACN (autorité nationale italienne).
+    {"name": "CSIRT Italia", "url": "https://www.acn.gov.it/portale/feedrss/-/journal/rss/20119/723192", "category": ALERTS, "country": "IT", "translate": "it"},
+    # CIRCL publie en anglais : aucune traduction à appliquer.
+    {"name": "CIRCL (Luxembourg)", "url": "https://www.circl.lu/rss.xml", "category": ALERTS, "country": "LU"},
+    # CERT.at : flux « Warnungen », en allemand, même formule que le BSI.
+    {"name": "CERT.at", "url": "https://cert.at/cert-at.de.warnings.rss_2.0.xml", "category": ALERTS, "country": "AT", "translate": "de"},
+    # NSM : « sårbarhetsvarsler » (alertes de vulnérabilité), en norvégien.
+    {"name": "NSM (Norvège)", "url": "https://nsm.no/rss/sarbarhetsvarsler-fra-nsm/", "category": ALERTS, "country": "NO", "translate": "no"},
+    # NCSC-FI existe en finnois et en anglais : on prend l'anglais, aucun entretien de traduction.
+    {"name": "NCSC-FI", "url": "https://www.kyberturvallisuuskeskus.fi/feed/rss/en", "category": ALERTS, "country": "FI"},
     {"name": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "category": ALERTS},
     {"name": "CERT/CC", "url": "https://kb.cert.org/vuls/atomfeed/", "category": ALERTS},
-    {"name": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "category": ALERTS, "country": "BE"},
+    {"name": "Safeonweb (Belgique)", "url": "https://safeonweb.be/fr/rss.xml", "category": ALERTS, "country": "BE", "translate": "fr"},
     {"name": "CCB Belgique", "url": "https://ccb.belgium.be/advisories.xml", "category": ALERTS, "country": "BE"},
-    {"name": "NCSC-NL", "url": "https://advisories.ncsc.nl/rss/advisories", "category": ALERTS, "country": "NL"},
-    {"name": "CERT Polska", "url": "https://cert.pl/rss.xml", "category": ALERTS, "country": "PL"},
-    {"name": "BSI CERT-Bund", "url": "https://wid.cert-bund.de/content/public/securityAdvisory/rss", "category": ALERTS, "country": "DE", "translate": True, "max": 30},
-    {"name": "CERT-SE", "url": "https://www.cert.se/feed", "category": ALERTS, "country": "SE"},
-    {"name": "CERT.hr", "url": "https://www.cert.hr/feed/", "category": ALERTS, "country": "HR"},
-    {"name": "SI-CERT", "url": "https://www.cert.si/feed/", "category": ALERTS, "country": "SI"},
+    {"name": "NCSC-NL", "url": "https://advisories.ncsc.nl/rss/advisories", "category": ALERTS, "country": "NL", "translate": "nl"},
+    {"name": "CERT Polska", "url": "https://cert.pl/rss.xml", "category": ALERTS, "country": "PL", "translate": "pl"},
+    {"name": "BSI CERT-Bund", "url": "https://wid.cert-bund.de/content/public/securityAdvisory/rss", "category": ALERTS, "country": "DE", "translate": "de", "max": 30},
+    {"name": "CERT-SE", "url": "https://www.cert.se/feed", "category": ALERTS, "country": "SE", "translate": "sv"},
+    {"name": "CERT.hr", "url": "https://www.cert.hr/feed/", "category": ALERTS, "country": "HR", "translate": "hr"},
+    {"name": "SI-CERT", "url": "https://www.cert.si/feed/", "category": ALERTS, "country": "SI", "translate": "sl"},
     {"name": "Full Disclosure", "url": "https://seclists.org/rss/fulldisclosure.rss", "category": ALERTS},
     {"name": "SANS ISC Diary", "url": "https://isc.sans.edu/rssfeed.xml", "category": ALERTS},
     # Vulnérabilités / exploits / avis fournisseurs
@@ -1256,6 +1428,8 @@ SOURCE_WEIGHTS = {
     "CERT-FR avis": 3, "CERT-FR": 3, "CERT-EU": 3, "CISA Advisories": 3,
     "NCSC UK": 3, "JPCERT/CC": 3, "CCB Belgique": 3,
     "CERT/CC": 3,
+    "CSIRT Italia": 3, "CIRCL (Luxembourg)": 3, "CERT.at": 3,
+    "NSM (Norvège)": 3, "NCSC-FI": 3,
     "NCSC-NL": 3, "CERT Polska": 3,
     "BSI CERT-Bund": 3, "CERT-SE": 3, "CERT.hr": 3, "SI-CERT": 3, "Full Disclosure": 2,
     "Safeonweb (Belgique)": 2, "SANS ISC Diary": 2,
@@ -2027,8 +2201,11 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             titre = re.sub(r"<[^>]+>", " ", html.unescape(texte))
             titre = re.sub(r"\s+", " ", titre).strip()
         title = (titre or "Untitled item")[:300]
-        if source.get("translate"):
-            title = translate_german(title)
+        # « translate » vaut une langue depuis l'ouverture aux CERT nationaux ; True reste
+        # accepté et signifie l'allemand, pour ne pas casser les sources déjà déclarées.
+        langue = source.get("translate")
+        if langue:
+            title = translate_title(title, "de" if langue is True else str(langue))
         text = _entry_text(entry)
         if filtered and not is_relevant(text):
             skipped += 1

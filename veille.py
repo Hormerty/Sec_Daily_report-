@@ -1258,9 +1258,9 @@ RSS_SOURCES = [
     # CERT & autorités. Les titres des CERT non anglophones suivent des formules fixes : la clé
     # « translate » nomme la table de locutions à appliquer (voir _TRADUCTIONS), pour que le flux
     # reste lisible en anglais sans toucher au nom du produit.
-    {"name": "CERT-FR avis", "url": "https://cert.cyber.gouv.fr/avis/feed/", "category": ALERTS, "country": "FR", "translate": "fr"},
-    # Le flux combine du nouveau domaine rend avis, alertes, actualite et rapports CTI ; celui de
-    # l'ancienne adresse /alerte/feed/ ne produisait plus rien depuis des mois.
+    # CERT-FR ne publie qu'un flux utile : le combiné /feed/ contient les mêmes quarante avis que
+    # /avis/feed/, et les alertes séparées sont mortes (/alert/feed/ vide, /alerte/feed/ figé en
+    # 2024). Déclarer les deux doublait la requête pour un contenu identique.
     {"name": "CERT-FR", "url": "https://cert.cyber.gouv.fr/feed/", "category": ALERTS, "country": "FR", "translate": "fr"},
     {"name": "CERT-EU", "url": "https://cert.europa.eu/publications/security-advisories-rss", "category": ALERTS, "country": "EU"},
     {"name": "CISA Advisories", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "category": ALERTS},

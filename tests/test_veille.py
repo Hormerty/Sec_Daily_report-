@@ -236,7 +236,7 @@ def test_les_cert_nationaux_ajoutes_sont_declares():
 def test_les_cert_traduits_ne_sont_pas_oublies():
     """Un flux non anglophone sans traduction afficherait du texte brut dans le rapport."""
     non_anglophones = {
-        "CERT-FR avis": "fr", "CERT-FR": "fr", "NCSC-NL": "nl", "CERT Polska": "pl",
+        "CERT-FR": "fr", "NCSC-NL": "nl", "CERT Polska": "pl",
         "SI-CERT": "sl", "CERT-SE": "sv", "CERT.hr": "hr", "BSI CERT-Bund": "de",
         "CSIRT Italia": "it", "CERT.at": "de", "NSM (Norvège)": "no",
     }
@@ -244,6 +244,14 @@ def test_les_cert_traduits_ne_sont_pas_oublies():
 
     for nom, langue in non_anglophones.items():
         assert par_nom[nom].get("translate") == langue, f"{nom} devrait être traduit depuis {langue}"
+
+
+def test_cert_fr_n_est_declare_qu_une_fois():
+    """Le flux combiné contient déjà les avis : deux entrées doublaient la requête."""
+    flux = [source for source in veille.RSS_SOURCES if source["name"].startswith("CERT-FR")]
+
+    assert len(flux) == 1, f"CERT-FR déclaré {len(flux)} fois"
+    assert flux[0]["url"].endswith("/feed/")
 
 
 @pytest.mark.parametrize("titre, langue, attendu", [

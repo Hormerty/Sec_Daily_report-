@@ -146,6 +146,13 @@ also repackages sources already queried first-hand, mixes breach news with advis
 re-publishes an entry whenever a proof of concept appears (the guid carries a timestamp, so the
 same CVE returns).
 
+**[OSV](https://osv.dev) — Google's open source vulnerability database** has no feed: its
+site announces only a blog RSS, and its data arrives as per-ecosystem archives (PyPI 36 MB,
+npm 212 MB, Go 12 MB). It is an API for exact lookups, and a good one: querying
+`django 4.2.0` returns 96 advisories, version-precise. That is a stack-audit capability,
+not a source for a daily brief, and it would mean sending the user's dependency list to a
+third party. Left out, but worth remembering if the stack ever accepts a lockfile.
+
 What both do well is deduplicate per vulnerability and merge severity data. That is precisely
 what the engine already does across its 123 feeds, with the country provenance kept.
 

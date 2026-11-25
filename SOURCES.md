@@ -131,6 +131,14 @@ same CVE returns).
 What both do well is deduplicate per vulnerability and merge severity data. That is precisely
 what the engine already does across its 123 feeds, with the country provenance kept.
 
+A third lead came from [haxdoggy/vulnerability-databases](https://github.com/haxdoggy/vulnerability-databases),
+a curated directory of vulnerability databases (a README table and a `databases.json`, CC-BY-4.0).
+It is a catalogue, not a service: it offers neither an API nor downloadable collections, and its
+Europe section lists exactly the CERTs already collected here — which is a useful confirmation
+rather than a discovery. Its most interesting entry is **GCVE**, CIRCL's decentralised CVE
+database: `https://db.gcve.eu/api/vulnerability/GCVE-1-2026-0001` answers with a CVE-5 style
+JSON record. It is a lookup base, like EUVD, not a feed, and the same reasoning applies.
+
 ## Checking a candidate
 
 ```bash

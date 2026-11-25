@@ -1,4 +1,4 @@
-"""Non-regression tests for veille.py.
+﻿"""Non-regression tests for veille.py.
 
 Plain functions only: they run under pytest (`python -m pytest -q`) and can also
 be called directly by a small runner, so no fixture is required.
@@ -7,7 +7,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -525,3 +525,46 @@ def test_collect_red_hat_signale_une_api_muette():
 
     assert articles == []
     assert erreur == "Red Hat (CVE): délai dépassé"
+
+
+# --- CISA KEV : échéance de remédiation ---------------------------------------------------
+
+def _kev_article(monkeypatch, entree):
+    """Collecte une entrée KEV fabriquée, sans toucher au cache ni au réseau."""
+    monkeypatch.setattr(veille, "_write_kev_cache", lambda vulns: None)
+    monkeypatch.setattr(veille, "KEV_VULNS", [])
+    return veille.collect_cisa_kev(_SessionFactice({"vulnerabilities": [entree]}), set())
+
+
+def test_le_kev_affiche_lecheance_de_remediation(monkeypatch):
+    """L'échéance fédérale est l'information la plus actionnable du catalogue."""
+    hier = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    articles, erreur = _kev_article(monkeypatch, {
+        "cveID": "CVE-2026-103406",
+        "vendorProject": "Hewlett Packard Enterprise (HPE)",
+        "product": "Juniper Session Smart Conductor",
+        "shortDescription": "Contains a deserialization flaw.",
+        "dateAdded": hier,
+        "dueDate": "2026-11-28",
+        "knownRansomwareCampaignUse": "Unknown",
+    })
+
+    assert erreur is None
+    assert len(articles) == 1
+    assert articles[0].detail.startswith("échéance CISA : 28/11/2026")
+    assert "deserialization" in articles[0].detail
+
+
+def test_le_kev_montre_les_cwe_quand_aucune_echeance_nest_donnee(monkeypatch):
+    hier = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    articles, _ = _kev_article(monkeypatch, {
+        "cveID": "CVE-2026-000001",
+        "vendorProject": "Exemple",
+        "product": "Produit",
+        "shortDescription": "Description courte.",
+        "dateAdded": hier,
+        "cwes": ["CWE-502", "CWE-79", "CWE-89"],
+    })
+
+    assert articles[0].detail.startswith("CWE-502, CWE-79 · ")
+    assert "CWE-89" not in articles[0].detail

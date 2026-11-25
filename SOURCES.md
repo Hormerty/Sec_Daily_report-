@@ -35,7 +35,6 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 | SE | CERT-SE | `https://www.cert.se/feed` | Swedish |
 | SI | SI-CERT | `https://www.cert.si/feed/` | Slovenian |
 | SK | SK-CERT | `https://www.sk-cert.sk/index.html%3Ffeed=rss` | Slovak |
-
 Non-English titles are translated by the phrase tables in `_TRADUCTIONS`, applied per source
 through the `translate` key. Those tables were written from real titles pulled from each feed,
 never from guessed vocabulary, because a wrong substitution would corrupt a product name.
@@ -65,6 +64,25 @@ CERT-FR publishes one combined feed (`/feed/`) whose content is identical to the
 feed (`/avis/feed/`). Only the combined one is declared: keeping both fetched the same forty
 items twice per run. Of the two separate alert feeds, `/alert/feed/` returns zero entries and
 `/alerte/feed/` has not been updated since 2024.
+
+## Vendors and distributions
+
+The table above covers national authorities. Two distribution feeds were added in November
+2026, because a server fleet is more often affected by its package manager than by a national
+alert:
+
+| Distributor | Endpoint | Format |
+|---|---|---|
+| Ubuntu | `https://ubuntu.com/security/notices/rss.xml` | RSS, USN identifiers |
+| Red Hat | `https://access.redhat.com/hydra/rest/securitydata/cve.json` | JSON API, one record per CVE |
+
+Ubuntu publishes an RSS feed and is declared like any other source. Red Hat publishes no feed:
+the engine queries its security data API with `after=<yesterday>`, then filters again on the
+exact publication timestamp, because `after` works at day granularity. The 27-hour window
+measured held twenty-two CVEs, each with its severity and CVSS score.
+
+Debian was checked as well and left out: its security tracker publishes no feed, and the bulk
+JSON is 90 MB per fetch.
 
 ## Verified, integration pending
 

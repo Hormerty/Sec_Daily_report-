@@ -442,3 +442,86 @@ def test_l_irlande_est_collectee_sans_traduction():
     assert source["country"] == "IE"
     assert "translate" not in source
     assert source["url"].endswith("/news/alerts.rss")
+
+# --- Distributions Linux : Ubuntu (RSS) et Red Hat (API JSON) ----------------------------
+
+def test_ubuntu_et_red_hat_sont_declares():
+    """Aucune distribution n'était couverte, alors qu'elles portent les parcs serveurs."""
+    ubuntu = next(s for s in veille.RSS_SOURCES if s["name"] == "Ubuntu (USN)")
+
+    assert ubuntu["url"] == "https://ubuntu.com/security/notices/rss.xml"
+    assert ubuntu["category"] == veille.ALERTS
+    assert veille.SOURCE_WEIGHTS.get("Ubuntu (USN)") == 3
+    assert veille.SOURCE_WEIGHTS.get("Red Hat (CVE)") == 3
+
+
+class _ReponseFactice:
+    def __init__(self, charge):
+        self._charge = charge
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._charge
+
+
+class _SessionFactice:
+    def __init__(self, charge):
+        self._charge = charge
+        self.derniere_requete = None
+
+    def get(self, url, params=None, timeout=None, headers=None):
+        self.derniere_requete = {"url": url, "params": params or {}}
+        return _ReponseFactice(self._charge)
+
+
+def test_collect_red_hat_lit_la_severite_et_le_cvss():
+    depuis = datetime(2026, 11, 24, tzinfo=timezone.utc)
+    charge = [{
+        "CVE": "CVE-2026-136410",
+        "severity": "important",
+        "public_date": "2026-11-25T10:00:00Z",
+        "bugzilla_description": "thymeleaf: thymeleaf: Restricted expression mode bypass",
+        "cvss3_score": 9.0,
+        "resource_url": "https://access.redhat.com/security/cve/CVE-2026-136410",
+    }]
+    session = _SessionFactice(charge)
+
+    articles, erreur = veille.collect_redhat(session, depuis)
+
+    assert erreur is None
+    assert len(articles) == 1
+    article = articles[0]
+    assert article.source == "Red Hat (CVE)"
+    assert article.title == "CVE-2026-136410: thymeleaf: Restricted expression mode bypass"
+    assert article.severity == "important"
+    assert article.cvss == 9.0
+    assert article.cves == ("CVE-2026-136410",)
+    # « after » travaille au jour près : la veille est demandée puis refiltrée.
+    assert session.derniere_requete["params"]["after"] == "2026-11-23"
+
+
+def test_collect_red_hat_ecarte_ce_qui_precede_la_fenetre():
+    depuis = datetime(2026, 11, 25, 12, tzinfo=timezone.utc)
+    charge = [{
+        "CVE": "CVE-2026-000001",
+        "public_date": "2026-11-20T08:00:00Z",
+        "bugzilla_description": "vieux paquet: vulnérabilité",
+    }]
+
+    articles, erreur = veille.collect_redhat(_SessionFactice(charge), depuis)
+
+    assert erreur is None
+    assert articles == []
+
+
+def test_collect_red_hat_signale_une_api_muette():
+    class _SessionEnPanne:
+        def get(self, *args, **kwargs):
+            raise requests.exceptions.ReadTimeout("Read timed out. (read timeout=15)")
+
+    articles, erreur = veille.collect_redhat(_SessionEnPanne(), datetime(2026, 11, 24, tzinfo=timezone.utc))
+
+    assert articles == []
+    assert erreur == "Red Hat (CVE): délai dépassé"

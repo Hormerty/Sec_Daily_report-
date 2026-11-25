@@ -1355,6 +1355,7 @@ SOURCE_GITHUB = "GitHub Advisory"
 SOURCE_RANSOMWARE_API = "Ransomware.live (victims)"
 SOURCE_HIBP = "Have I Been Pwned"
 SOURCE_EUVD = "EUVD (ENISA)"
+SOURCE_REDHAT = "Red Hat (CVE)"
 SOURCE_NVD = "NVD (éditeurs)"
 SOURCE_METASPLOIT = "Metasploit (CVE armées)"
 # Cle facultative de l'API PRO (gratuite). Sans elle, le collecteur utilise l'acces anonyme.
@@ -1426,6 +1427,8 @@ RSS_SOURCES = [
     {"name": "Microsoft MSRC", "url": "https://api.msrc.microsoft.com/update-guide/rss", "category": ALERTS, "max": 10},
     {"name": "Palo Alto Advisories", "url": "https://security.paloaltonetworks.com/rss.xml", "category": ALERTS},
     {"name": "Cisco PSIRT", "url": "https://sec.cloudapps.cisco.com/security/center/psirtrss20/CiscoSecurityAdvisory.xml", "category": ALERTS},
+    # Ubuntu publie des avis numerotes USN, en anglais, avec la version corrigee.
+    {"name": "Ubuntu (USN)", "url": "https://ubuntu.com/security/notices/rss.xml", "category": ALERTS},
     {"name": "oss-security", "url": "https://seclists.org/rss/oss-sec.rss", "category": ALERTS, "filter": True},
     {"name": "Chrome Releases", "url": "https://feeds.feedburner.com/GoogleChromeReleases", "category": ALERTS, "filter": True, "max": 5},
     {"name": "GitLab", "url": "https://docs.gitlab.com/releases/patch-releases.xml", "category": ALERTS},
@@ -1570,6 +1573,7 @@ SOURCE_WEIGHTS = {
     "FortiGuard PSIRT": 3, "Microsoft MSRC": 3, "Palo Alto Advisories": 3,
     "Cisco PSIRT": 3, "oss-security": 2, "Chrome Releases": 2,
     "GitLab": 3, "Jenkins": 3, "Sploitus": 2,
+    "Ubuntu (USN)": 3, "Red Hat (CVE)": 3,
     "CVEfeed": 2, "Zero Day Initiative": 3, "Exploit-DB": 2,
     "Ransomware.live": 1, "Help Net Security (Ransomware)": 1,
     "Ransomware.live (victims)": 2,
@@ -2668,6 +2672,73 @@ def tld_country(domain: str) -> str:
     return code if code in COUNTRIES else ""
 
 
+def collect_redhat(session: requests.Session, since: datetime):
+    """CVE suivies par Red Hat, toutes distributions confondues.
+
+    Red Hat n'expose pas de flux RSS : son API JSON rend, pour chaque CVE, la sévérité, la date
+    de publication, le score CVSS et la description du Bugzilla — qui sert de titre. Le
+    paramètre « after » travaille au jour près, donc on demande la veille et on refiltre sur
+    l'horodatage exact.
+    """
+    url = "https://access.redhat.com/hydra/rest/securitydata/cve.json"
+    params = {"per_page": 500, "after": (since - timedelta(days=1)).strftime("%Y-%m-%d")}
+    try:
+        response = session.get(url, params=params, timeout=TIMEOUT,
+                               headers={"Accept": "application/json", "User-Agent": USER_AGENT})
+        response.raise_for_status()
+        entrees = response.json()
+        if not isinstance(entrees, list):
+            raise ValueError("invalid payload")
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        log.warning("%s: %s", SOURCE_REDHAT, exc)
+        return [], f"{SOURCE_REDHAT}: {_raison_courte(exc)}"
+
+    articles = []
+    for entree in entrees:
+        if not isinstance(entree, dict):
+            continue
+        cve = str(entree.get("CVE") or "").strip()
+        if not cve.upper().startswith("CVE-"):
+            continue
+        try:
+            date = datetime.strptime(str(entree.get("public_date") or "")[:19],
+                                     "%Y-%m-%dT%H:%M:%S")
+            date = date.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if date < since:
+            continue
+        description = str(entree.get("bugzilla_description") or "").strip()
+        # Red Hat répète le nom du paquet dans sa description : « rsyslog: rsyslog: omdtls… ».
+        description = re.sub(r"^([\w.+-]+): \1: ", r"\1: ", description)
+        titre = description or cve
+        if cve not in titre:
+            titre = f"{cve}: {titre}"
+        severite = str(entree.get("severity") or "").strip()
+        brut = entree.get("cvss3_score") or entree.get("cvss_score")
+        try:
+            cvss = float(brut) if brut not in (None, "") else None
+        except (TypeError, ValueError):
+            cvss = None
+        lien = str(entree.get("resource_url") or "").strip()
+        if not lien.startswith(("http://", "https://")):
+            lien = f"https://access.redhat.com/security/cve/{cve}"
+        articles.append(Article(
+            source=SOURCE_REDHAT,
+            title=titre[:300],
+            link=lien,
+            date=date,
+            category=ALERTS,
+            detail=description[:400],
+            tags=severite,
+            severity=severite,
+            cvss=cvss,
+            cves=(cve,),
+        ))
+    log.info("%s: %d articles", SOURCE_REDHAT, len(articles))
+    return articles, None
+
+
 def collect_hibp(session: requests.Session, since: datetime):
     """Fuites publiees par Have I Been Pwned : nom, volume et date d'ajout.
 
@@ -2744,7 +2815,7 @@ def collect_euvd(session: requests.Session, since: datetime):
             raise ValueError("invalid payload")
     except (requests.RequestException, ValueError, AttributeError) as exc:
         log.warning("%s: %s", SOURCE_EUVD, exc)
-        return [], f"{SOURCE_EUVD}: {exc}"
+        return [], f"{SOURCE_EUVD}: {_raison_courte(exc)}"
 
     articles = []
     # Le catalogue europeen reprend en grande partie celui de la CISA : ne garder que les CVE que
@@ -4284,6 +4355,11 @@ def main() -> int:
             log.exception("%s: unexpected failure", SOURCE_EUVD)
             results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
         try:
+            results.append(collect_redhat(session, since))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("%s: unexpected failure", SOURCE_REDHAT)
+            results.append(([], f"{SOURCE_REDHAT}: unexpected error ({type(exc).__name__})"))
+        try:
             results.append(collect_nvd_vendors(session, since))
         except Exception as exc:  # noqa: BLE001
             log.exception("%s: unexpected failure", SOURCE_NVD)
@@ -4619,6 +4695,11 @@ def main_alert() -> int:
     except Exception as exc:  # noqa: BLE001
         log.exception("%s: unexpected failure", SOURCE_EUVD)
         results.append(([], f"{SOURCE_EUVD}: unexpected error ({type(exc).__name__})"))
+    try:
+        results.append(collect_redhat(session, since))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("%s: unexpected failure", SOURCE_REDHAT)
+        results.append(([], f"{SOURCE_REDHAT}: unexpected error ({type(exc).__name__})"))
     try:
         results.append(collect_nvd_vendors(session, since))
     except Exception as exc:  # noqa: BLE001

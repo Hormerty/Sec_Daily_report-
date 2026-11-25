@@ -1186,6 +1186,32 @@ _TRADUCTIONS: dict[str, dict[str, str]] = {
         "deler": "shares",
         " og ": " and ",
     },
+    "hu": {
+        # Restes fréquents après réécriture : substantifs techniques et mois.
+        "futtatókörnyezet": "runtime",
+        "rendszereket": "systems",
+        "rendszer": "system",
+        "termékeket": "products",
+        "termékek": "products",
+        "szoftvereket": "software",
+        "szoftvert": "software",
+        "szoftver": "software",
+        "hűtésfelügyeleti": "refrigeration control",
+        " és a ": " and ",
+        " és ": " and ",
+        "szeptemberben": "in September",
+        "októberben": "in October",
+        "novemberben": "in November",
+        "decemberben": "in December",
+        "januárban": "in January",
+        "februárban": "in February",
+        "márciusban": "in March",
+        "áprilisban": "in April",
+        "májusban": "in May",
+        "júniusban": "in June",
+        "júliusban": "in July",
+        "augusztusában": "in August",
+    },
 }
 
 # Les mois apparaissent en clair dans les titres CERT-FR (« 17 novembre 2026 ») et CSIRT Italia
@@ -1206,9 +1232,59 @@ _MOIS: dict[str, dict[str, str]] = {
 _TERMES = {langue: tuple(sorted(table.items(), key=lambda kv: -len(kv[0])))
            for langue, table in _TRADUCTIONS.items()}
 
+# Certaines langues placent le produit au milieu de la phrase : « Riasztás az NGINX kritikus
+# sérülékenységeiről » signifie « Alerte sur les vulnérabilités critiques de NGINX ». Aucune
+# substitution de mots ne peut réordonner cela, d'où des motifs qui capturent le produit et le
+# replacent dans un gabarit anglais. Les motifs sont essayés avant la table de locutions.
+_MOTIFS: dict[str, list[tuple[str, str]]] = {
+    "hu": [
+        # Les motifs spécifiques passent avant les génériques : « X-t érintő sérülékenységről »
+        # doit être reconnu avant « X sérülékenységről », sinon la fin de phrase reste hongroise.
+        # La CVE intercalée (« … rendszert érintő CVE-… sérülékenységről ») passe en tête.
+        (r"^Riasztás (?:az|a) (.+?) rendszert érintő (CVE-\d{4}-\d+) sérülékenységről$",
+         "Alert: vulnerability {1} affecting {0}"),
+        (r"^Riasztás (?:az|a) (.+?) kritikus sérülékenységeiről$",
+         "Alert: critical vulnerabilities in {0}"),
+        (r"^Riasztás (?:az|a) (.+?) kritikus sérülékenységéről$",
+         "Alert: critical vulnerability in {0}"),
+        (r"^Riasztás (?:az|a) (.+?)(?:-t)? érintő sérülékenységekről$",
+         "Alert: vulnerabilities affecting {0}"),
+        (r"^Riasztás (?:az|a) (.+?)(?:-t)? érintő sérülékenységről$",
+         "Alert: vulnerability affecting {0}"),
+        # Variante sans article : « Riasztás Check Point Security Management Server-t érintő … ».
+        (r"^Riasztás (.+?)(?:-t)? érintő sérülékenységről$",
+         "Alert: vulnerability affecting {0}"),
+        (r"^Riasztás (?:az|a) (.+?) sérülékenységről$", "Alert: vulnerability in {0}"),
+        (r"^Riasztás (.+?) rendszereket érintő sérülékenységekről$",
+         "Alert: vulnerabilities affecting {0} systems"),
+        (r"^Riasztás (.+?) rendszert érintő sérülékenységekről$",
+         "Alert: vulnerabilities affecting {0}"),
+        # « … szoftvereket érintő sérülékenységekről » : le produit précède « szoftverek ».
+        (r"^Riasztás (.+?) szoftvereket érintő sérülékenységekről$",
+         "Alert: vulnerabilities affecting {0} software"),
+        (r"^Riasztás (.+?) szoftvert érintő sérülékenységről$",
+         "Alert: vulnerability affecting {0} software"),
+        # « Microsoft szoftverek 2026 szeptemberben javított sérülékenységeiről ».
+        (r"^Riasztás (.+?) szoftverek (.+?) javított sérülékenységeiről$",
+         "Alert: vulnerabilities fixed in {0} software ({1})"),
+        (r"^Riasztás (.+?) szoftverek (.+?) javított sérülékenységéről$",
+         "Alert: vulnerability fixed in {0} software ({1})"),
+        (r"^Riasztás (?:az|a) (.+?) sérülékenységeiről$", "Alert: vulnerabilities in {0}"),
+        (r"^Riasztás (?:az|a) (.+?) sérülékenységéről$", "Alert: vulnerability in {0}"),
+    ],
+}
+
 
 def translate_title(title: str, langue: str = "de") -> str:
     """Traduit les locutions d'un titre d'avis, sans toucher au nom du produit."""
+    for motif, gabarit in _MOTIFS.get(langue, ()):
+        trouve = re.match(motif, title.strip())
+        if trouve:
+            # Certains gabarits utilisent plusieurs groupes (produit + identifiant CVE). On
+            # continue ensuite avec la table de mots : un titre réécrit garde parfois un
+            # substantif hongrois au milieu (« PHP futtatókörnyezet »).
+            title = gabarit.format(*trouve.groups())
+            break
     for source, cible in _TERMES.get(langue, ()):
         if source in title:
             title = title.replace(source, cible)
@@ -1273,6 +1349,9 @@ RSS_SOURCES = [
     {"name": "CERT.at", "url": "https://cert.at/cert-at.de.warnings.rss_2.0.xml", "category": ALERTS, "country": "AT", "translate": "de"},
     # NSM : « sårbarhetsvarsler » (alertes de vulnérabilité), en norvégien.
     {"name": "NSM (Norvège)", "url": "https://nsm.no/rss/sarbarhetsvarsler-fra-nsm/", "category": ALERTS, "country": "NO", "translate": "no"},
+    # NKI : le flux mêle avis techniques et campagnes de sensibilisation hongroises. « require »
+    # ne garde que les titres qui parlent de vulnérabilité (sérülékenység), avant traduction.
+    {"name": "NKI (Hongrie)", "url": "https://nki.gov.hu/figyelmeztetesek/riasztas/feed/", "category": ALERTS, "country": "HU", "translate": "hu", "require": "sérülékenység"},
     # NCSC-FI existe en finnois et en anglais : on prend l'anglais, aucun entretien de traduction.
     {"name": "NCSC-FI", "url": "https://www.kyberturvallisuuskeskus.fi/feed/rss/en", "category": ALERTS, "country": "FI"},
     {"name": "JPCERT/CC", "url": "https://www.jpcert.or.jp/english/rss/jpcert-en.rdf", "category": ALERTS},
@@ -2201,6 +2280,14 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             titre = re.sub(r"<[^>]+>", " ", html.unescape(texte))
             titre = re.sub(r"\s+", " ", titre).strip()
         title = (titre or "Untitled item")[:300]
+        # « require » : le titre doit contenir ce fragment pour être retenu. Certains CERT
+        # mêlent avis techniques et campagnes de sensibilisation ; le filtre les sépare sans
+        # dépendre de la langue. Il s'applique AVANT la traduction, qui peut effacer le mot.
+        requis = source.get("require")
+        if requis and requis.casefold() not in title.casefold():
+            skipped += 1
+            log.info("  skipped (sans %s) [%s]: %s", requis, source["name"], title)
+            continue
         # « translate » vaut une langue depuis l'ouverture aux CERT nationaux ; True reste
         # accepté et signifie l'allemand, pour ne pas casser les sources déjà déclarées.
         langue = source.get("translate")

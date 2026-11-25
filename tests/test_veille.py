@@ -300,3 +300,42 @@ def test_une_langue_sans_table_ne_change_rien():
 def test_translate_german_reste_compatible():
     """La fonction d'origine est conservée : d'autres appelants peuvent s'y fier."""
     assert veille.translate_german("Schwachstelle in PHP") == "Vulnerability in PHP"
+
+# --- Hongrie : réécriture des titres et filtre par source ------------------------------------
+
+def test_la_hongrie_est_filtree_sur_la_vulnerabilite():
+    """NKI mêle avis et campagnes de sensibilisation : seul l'avis nous intéresse."""
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "NKI (Hongrie)")
+
+    assert source["country"] == "HU"
+    assert source["translate"] == "hu"
+    assert source["require"] == "sérülékenység"
+
+
+@pytest.mark.parametrize("titre, attendu", [
+    ("Riasztás az NGINX kritikus sérülékenységeiről",
+     "Alert: critical vulnerabilities in NGINX"),
+    ("Riasztás a PHP futtatókörnyezet kritikus sérülékenységeiről",
+     "Alert: critical vulnerabilities in PHP runtime"),
+    ("Riasztás a WordPress Core-t érintő sérülékenységről",
+     "Alert: vulnerability affecting WordPress Core"),
+    ("Riasztás Check Point Security Management Server-t érintő sérülékenységről",
+     "Alert: vulnerability affecting Check Point Security Management Server"),
+    ("Riasztás a NetScaler ADC és NetScaler Gateway termékeket érintő sérülékenységekről",
+     "Alert: vulnerabilities affecting NetScaler ADC and NetScaler Gateway products"),
+    ("Riasztás az F5 BIG-IP APM rendszert érintő CVE-2026-94127 sérülékenységről",
+     "Alert: vulnerability CVE-2026-94127 affecting F5 BIG-IP APM"),
+    ("Riasztás a *sshole sérülékenységről", "Alert: vulnerability in *sshole"),
+])
+def test_reecriture_des_titres_hongrois(titre, attendu):
+    assert veille.translate_title(titre, "hu") == attendu
+
+
+def test_le_filtre_par_source_laisse_passer_un_avis_et_ecarte_une_campagne():
+    """Le fragment doit être cherché dans le titre d'origine, avant toute traduction."""
+    source_avec_filtre = {"require": "sérülékenység"}
+    avis = "Riasztás az NGINX kritikus sérülékenységeiről"
+    campagne = "Riasztás a Tárhely.Eu nevében küldött adathalász kampány kapcsán"
+
+    assert source_avec_filtre["require"] in avis.casefold()
+    assert source_avec_filtre["require"] not in campagne.casefold()

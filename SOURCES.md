@@ -23,6 +23,7 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 | FR | CERT-FR | `https://cert.cyber.gouv.fr/feed/` | French |
 | GB | NCSC UK | `https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml` | English |
 | HR | CERT.hr | `https://www.cert.hr/feed/` | Croatian |
+| HU | NKI | `https://nki.gov.hu/figyelmeztetesek/riasztas/feed/` | Hungarian |
 | IT | CSIRT Italia (ACN) | `https://www.acn.gov.it/portale/feedrss/-/journal/rss/20119/723192` | Italian |
 | LU | CIRCL | `https://www.circl.lu/rss.xml` | English |
 | NL | NCSC-NL | `https://advisories.ncsc.nl/rss/advisories` | Dutch |
@@ -34,6 +35,14 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 Non-English titles are translated by the phrase tables in `_TRADUCTIONS`, applied per source
 through the `translate` key. Those tables were written from real titles pulled from each feed,
 never from guessed vocabulary, because a wrong substitution would corrupt a product name.
+
+Hungarian does not fit that model: the product sits in the middle of the sentence
+("Riasztás az NGINX kritikus sérülékenységeiről"), so no word substitution can reorder it.
+Hungarian titles are therefore rewritten through the `_MOTIFS` patterns, which capture the
+product and place it into an English template. Because NKI also publishes awareness campaigns
+and phishing notices, the source declares `require: "sérülékenység"`: an item is kept only if
+its title mentions a vulnerability. On the feed as measured, that keeps seventeen of twenty
+entries and translates all seventeen.
 
 CERT-FR publishes one combined feed (`/feed/`) whose content is identical to the advisories
 feed (`/avis/feed/`). Only the combined one is declared: keeping both fetched the same forty

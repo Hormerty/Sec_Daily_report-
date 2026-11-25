@@ -24,7 +24,7 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 | FR | CERT-FR | `https://cert.cyber.gouv.fr/feed/` | French |
 | GB | NCSC UK | `https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml` | English |
 | HR | CERT.hr | `https://www.cert.hr/feed/` | Croatian |
-| HU | NKI | `https://nki.gov.hu/figyelmeztetesek/riasztas/feed/` | Hungarian |
+| HU | NKI | `https://nki.gov.hu/feed/riasztasok/` | Hungarian |
 | IT | CSIRT Italia (ACN) | `https://www.acn.gov.it/portale/feedrss/-/journal/rss/20119/723192` | Italian |
 | LU | CIRCL | `https://www.circl.lu/rss.xml` | English |
 | NL | NCSC-NL | `https://advisories.ncsc.nl/rss/advisories` | Dutch |

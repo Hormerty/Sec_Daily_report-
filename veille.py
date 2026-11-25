@@ -1396,7 +1396,8 @@ RSS_SOURCES = [
     {"name": "NSM (Norvège)", "url": "https://nsm.no/rss/sarbarhetsvarsler-fra-nsm/", "category": ALERTS, "country": "NO", "translate": "no"},
     # NKI : le flux mêle avis techniques et campagnes de sensibilisation hongroises. « require »
     # ne garde que les titres qui parlent de vulnérabilité (sérülékenység), avant traduction.
-    {"name": "NKI (Hongrie)", "url": "https://nki.gov.hu/figyelmeztetesek/riasztas/feed/", "category": ALERTS, "country": "HU", "translate": "hu", "require": "sérülékenység"},
+    # Adresse déplacée : l'ancienne /figyelmeztetesek/riasztas/ redirige vers /feed/riasztasok/.
+    {"name": "NKI (Hongrie)", "url": "https://nki.gov.hu/feed/riasztasok/", "category": ALERTS, "country": "HU", "translate": "hu", "require": "sérülékenység"},
     # DNSC : alertes « ALERTĂ », communiqués et revues hebdomadaires dans le même flux.
     {"name": "DNSC (Roumanie)", "url": "https://dnsc.ro/feed", "category": ALERTS, "country": "RO", "translate": "ro", "require": "ALERTĂ"},
     # SK-CERT : le flux n'existe que sous cette forme encodée (%3F à la place de « ? »), et

@@ -104,6 +104,33 @@ Ukrainian — the campaign names (UAC-0277, LUNEXSTEAL) are Latin, the rest is n
 Third-party bridges (RSS.app and similar) are not an option: they make the watch depend on an
 unidentified service that can disappear, change its output, or relay altered content.
 
+## External aggregators evaluated and refused
+
+Two aggregators were examined in November 2026 because they promised to spare us work. Neither
+was integrated, and the reasons are worth keeping.
+
+**[EUVD](https://euvd.enisa.europa.eu) — ENISA's European Vulnerability Database** is a primary
+source and its JSON API works: `/api/search?fromDate=…&toDate=…&size=100` returns a date
+window, with CVSS 4.0 vectors, EPSS, vendor, product and the publishing CERT as `assigner`.
+The 25th of November alone held **294 entries**, and a three-day window 1 170. That volume, and
+the fact that an entry's `assigner` was CERT-PL — a feed collected directly, with its country
+and its translation — made it a duplicate with a heavier payload rather than a new source. Its
+`/api/lastvulnerabilities` endpoint, the only one meant for polling, returns four entries.
+
+**[cve.now](https://github.com/sazabi/cve.now) — a hosted feed** merging the CVE List, GHSA,
+OSV, NVD, EUVD, CISA KEV, EPSS and Exploit-DB into one entry per vulnerability, with RSS, a
+JSON API and an MCP server, no account required. Its filters work (`?filter=critical`,
+`?filter=kev`), each returning 200 entries. It was refused for one reason above all: its titles
+and summaries are written by a model, not by the vendor or the CERT. A brief whose job is to
+say whether a version is affected cannot quote a paraphrase — a summary may drop a version
+range or invert a condition, and nothing in the entry shows where the phrasing came from. It
+also repackages sources already queried first-hand, mixes breach news with advisories, and
+re-publishes an entry whenever a proof of concept appears (the guid carries a timestamp, so the
+same CVE returns).
+
+What both do well is deduplicate per vulnerability and merge severity data. That is precisely
+what the engine already does across its 123 feeds, with the country provenance kept.
+
 ## Checking a candidate
 
 ```bash

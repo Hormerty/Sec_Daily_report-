@@ -122,6 +122,15 @@ Ukrainian — the campaign names (UAC-0277, LUNEXSTEAL) are Latin, the rest is n
 Third-party bridges (RSS.app and similar) are not an option: they make the watch depend on an
 unidentified service that can disappear, change its output, or relay altered content.
 
+[**RSS-Bridge**](https://github.com/RSS-Bridge/rss-bridge) is the honest version of that idea: it
+is self-hosted, so nothing is relayed by a stranger. Its 553 bridges contain none for the three
+countries still missing — the closest names are Comboios de Portugal and Cybernews, neither a
+CERT. Using it would therefore mean writing a PHP bridge per site and keeping a web server
+running beside a 15 MB desktop application, and it would not open Portugal at all: the page sits
+behind a bot check, which a self-hosted scraper cannot pass either. The gap is the same work in
+a heavier runtime, with the same fragility — a scraper that returns nothing looks like a quiet
+day, where a dead feed appears in the error line.
+
 ## External aggregators evaluated and refused
 
 Two aggregators were examined in November 2026 because they promised to spare us work. Neither

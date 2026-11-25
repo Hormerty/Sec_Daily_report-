@@ -212,3 +212,207 @@ def test_configuration_lue_au_demarrage(tmp_path):
                               capture_output=True, text=True)
     assert resultat.returncode == 0, resultat.stderr
     assert resultat.stdout.split() == ["True", "True"]
+
+# --- CERT nationaux : présence et traduction des titres -------------------------------------
+
+def test_les_cert_nationaux_ajoutes_sont_declares():
+    """Cinq CERT entraient dans le périmètre : ils doivent être déclarés, avec leur pays."""
+    attendus = {
+        "CSIRT Italia": ("IT", "it"),
+        "CIRCL (Luxembourg)": ("LU", None),
+        "CERT.at": ("AT", "de"),
+        "NSM (Norvège)": ("NO", "no"),
+        "NCSC-FI": ("FI", None),
+    }
+    par_nom = {source["name"]: source for source in veille.RSS_SOURCES}
+
+    for nom, (pays, langue) in attendus.items():
+        assert nom in par_nom, f"{nom} absent de RSS_SOURCES"
+        assert par_nom[nom]["country"] == pays
+        assert par_nom[nom]["category"] == veille.ALERTS
+        assert par_nom[nom].get("translate") == langue, f"{nom} : langue de traduction"
+
+
+def test_les_cert_traduits_ne_sont_pas_oublies():
+    """Un flux non anglophone sans traduction afficherait du texte brut dans le rapport."""
+    non_anglophones = {
+        "CERT-FR": "fr", "NCSC-NL": "nl", "CERT Polska": "pl",
+        "SI-CERT": "sl", "CERT-SE": "sv", "CERT.hr": "hr", "BSI CERT-Bund": "de",
+        "CSIRT Italia": "it", "CERT.at": "de", "NSM (Norvège)": "no",
+    }
+    par_nom = {source["name"]: source for source in veille.RSS_SOURCES}
+
+    for nom, langue in non_anglophones.items():
+        assert par_nom[nom].get("translate") == langue, f"{nom} devrait être traduit depuis {langue}"
+
+
+def test_cert_fr_n_est_declare_qu_une_fois():
+    """Le flux combiné contient déjà les avis : deux entrées doublaient la requête."""
+    flux = [source for source in veille.RSS_SOURCES if source["name"].startswith("CERT-FR")]
+
+    assert len(flux) == 1, f"CERT-FR déclaré {len(flux)} fois"
+    assert flux[0]["url"].endswith("/feed/")
+
+
+@pytest.mark.parametrize("titre, langue, attendu", [
+    ("Multiples vulnérabilités dans les produits Splunk (19 novembre 2026)", "fr",
+     "Multiple vulnerabilities in Splunk (19 November 2026)"),
+    ("Vulnérabilité dans les produits Elastic", "fr", "Vulnerability in Elastic"),
+    ("Kwetsbaarheden verholpen in PHP", "nl", "Vulnerabilities fixed in PHP"),
+    ("Kwetsbaarheid verholpen in OTRS", "nl", "Vulnerability fixed in OTRS"),
+    ("Podatność w oprogramowaniu Bludit", "pl", "Vulnerability in software Bludit"),
+    ("Podatności w oprogramowaniu LMS", "pl", "Vulnerabilities in software LMS"),
+    ("SI-CERT 2026-09 / Kritične ranljivosti v spletnem strežniku NGINX", "sl",
+     "SI-CERT 2026-09 / Critical vulnerabilities in web server NGINX"),
+    ("Allvarliga sårbarheter i NGINX", "sv", "Serious vulnerabilities in NGINX"),
+    ("Kritisk sårbarhet i Apache Axis", "sv", "Critical vulnerability in Apache Axis"),
+    ("[VAŽNO] KRITIČNE RANJIVOSTI NGINX", "hr", "[IMPORTANT] CRITICAL VULNERABILITIES NGINX"),
+    ("Risolte vulnerabilità in Drupal", "it", "Vulnerabilities fixed in Drupal"),
+    ("Adobe: aggiornamenti di sicurezza", "it", "Adobe: security updates"),
+    ("Rilevato sfruttamento attivo in rete della CVE-2026-131914", "it",
+     "Active exploitation detected in the wild for CVE-2026-131914"),
+    ("Flere kritiske sårbarheter i NGINX og BIG-IP", "no",
+     "Several critical vulnerabilities in NGINX and BIG-IP"),
+    ("Microsoft patchetirsdag november 2026", "no", "Microsoft Patch Tuesday november 2026"),
+    ("Kritische Sicherheitslücken in PHP - Updates verfügbar", "de",
+     "Critical vulnerabilities in PHP - updates available"),
+    ("[NEU] [hoch] OpenSSL: Mehrere Schwachstellen", "de",
+     "[NEW] [high] OpenSSL: Multiple vulnerabilities"),
+])
+def test_traduction_des_titres_cert(titre, langue, attendu):
+    assert veille.translate_title(titre, langue) == attendu
+
+
+def test_traduction_laisse_intact_un_nom_de_produit():
+    """« Cisco » et « Citrix NetScaler » ne doivent pas être touchés par les locutions."""
+    titre = "Kritische Sicherheitslücke in Citrix NetScaler ADC - Updates verfügbar"
+
+    traduit = veille.translate_title(titre, "de")
+
+    assert "Citrix NetScaler ADC" in traduit
+    assert traduit.startswith("Critical vulnerability in")
+
+
+def test_une_langue_sans_table_ne_change_rien():
+    assert veille.translate_title("Vulnerabilities in PHP", "xx") == "Vulnerabilities in PHP"
+
+
+def test_translate_german_reste_compatible():
+    """La fonction d'origine est conservée : d'autres appelants peuvent s'y fier."""
+    assert veille.translate_german("Schwachstelle in PHP") == "Vulnerability in PHP"
+
+# --- Hongrie : réécriture des titres et filtre par source ------------------------------------
+
+def test_la_hongrie_est_filtree_sur_la_vulnerabilite():
+    """NKI mêle avis et campagnes de sensibilisation : seul l'avis nous intéresse."""
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "NKI (Hongrie)")
+
+    assert source["country"] == "HU"
+    assert source["translate"] == "hu"
+    assert source["require"] == "sérülékenység"
+
+
+@pytest.mark.parametrize("titre, attendu", [
+    ("Riasztás az NGINX kritikus sérülékenységeiről",
+     "Alert: critical vulnerabilities in NGINX"),
+    ("Riasztás a PHP futtatókörnyezet kritikus sérülékenységeiről",
+     "Alert: critical vulnerabilities in PHP runtime"),
+    ("Riasztás a WordPress Core-t érintő sérülékenységről",
+     "Alert: vulnerability affecting WordPress Core"),
+    ("Riasztás Check Point Security Management Server-t érintő sérülékenységről",
+     "Alert: vulnerability affecting Check Point Security Management Server"),
+    ("Riasztás a NetScaler ADC és NetScaler Gateway termékeket érintő sérülékenységekről",
+     "Alert: vulnerabilities affecting NetScaler ADC and NetScaler Gateway products"),
+    ("Riasztás az F5 BIG-IP APM rendszert érintő CVE-2026-94127 sérülékenységről",
+     "Alert: vulnerability CVE-2026-94127 affecting F5 BIG-IP APM"),
+    ("Riasztás a *sshole sérülékenységről", "Alert: vulnerability in *sshole"),
+])
+def test_reecriture_des_titres_hongrois(titre, attendu):
+    assert veille.translate_title(titre, "hu") == attendu
+
+
+def test_le_filtre_par_source_laisse_passer_un_avis_et_ecarte_une_campagne():
+    """Le fragment doit être cherché dans le titre d'origine, avant toute traduction."""
+    source_avec_filtre = {"require": "sérülékenység"}
+    avis = "Riasztás az NGINX kritikus sérülékenységeiről"
+    campagne = "Riasztás a Tárhely.Eu nevében küldött adathalász kampány kapcsán"
+
+    assert source_avec_filtre["require"] in avis.casefold()
+    assert source_avec_filtre["require"] not in campagne.casefold()
+
+# --- Roumanie : filtre sur les alertes et réécriture des formules --------------------------
+
+def test_la_roumanie_est_filtree_sur_les_alertes():
+    """DNSC publie alertes, communiqués et revues hebdomadaires dans le même flux."""
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "DNSC (Roumanie)")
+
+    assert source["country"] == "RO"
+    assert source["translate"] == "ro"
+    assert source["require"] == "ALERTĂ"
+
+
+@pytest.mark.parametrize("titre, attendu", [
+    ("ALERTĂ: Vulnerabilitate critică la nivelul VMware",
+     "Alert: critical vulnerability in VMware"),
+    ("ALERTĂ: Vulnerabilitate critică la nivelul unei biblioteci Node.js",
+     "Alert: critical vulnerability in a Node.js library"),
+    ("ALERTĂ: Vulnerabilități critice identificate  la nivelul NGINX",
+     "Alert: critical vulnerabilities identified in NGINX"),
+    ("ALERTĂ: Vulnerabilități critice exploatate activ în Synology",
+     "Alert: critical vulnerabilities actively exploited in Synology"),
+    ("ALERTĂ: Vulnerabilități critice la nivelul NGINX",
+     "Alert: critical vulnerabilities in NGINX"),
+])
+def test_reecriture_des_titres_roumains(titre, attendu):
+    """La double espace de « identificate  la nivelul » ne doit pas faire échouer le motif."""
+    assert veille.translate_title(titre, "ro") == attendu
+
+# --- Slovaquie : flux sans date et titre encodé -----------------------------------------
+
+def test_la_slovaquie_est_declaree_avec_ses_singularites():
+    """Le flux n'existe qu'encodé et ne porte aucune date : les deux doivent être déclarés."""
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "SK-CERT (Slovaquie)")
+
+    assert "%3Ffeed=rss" in source["url"], "l'adresse doit rester encodée"
+    assert source["sans_date"] is True
+    assert source["require"] == "zraniteľn"
+    assert source["translate"] == "sk"
+
+
+@pytest.mark.parametrize("titre, attendu", [
+    ("Kritická zraniteľnosť „NGINX2ROOT“", "Critical vulnerability „NGINX2ROOT“"),
+    ("Kritické zraniteľnosti v PHP", "Critical vulnerabilities in PHP"),
+    ("Kritická zraniteľnosť TCP v jadre Linux",
+     "Critical vulnerability TCP in the Linux kernel"),
+    ("VAROVANIE: Kritické zraniteľnosti GITLAB CE a EE",
+     "WARNING: Critical vulnerabilities GITLAB CE and EE"),
+    ("VAROVANIE: Útočníci aktívne zneužívajú zraniteľnosti MIKROTIK smerovačov",
+     "WARNING: Attackers actively exploit vulnerabilities MIKROTIK routers"),
+])
+def test_reecriture_des_titres_slovaques(titre, attendu):
+    assert veille.translate_title(titre, "sk") == attendu
+
+# --- Espagne : titre anglais lu dans la description --------------------------------------
+
+def test_l_espagne_lit_son_titre_anglais_au_lieu_de_le_traduire():
+    source = next(s for s in veille.RSS_SOURCES if s["name"] == "INCIBE-CERT (Espagne)")
+
+    assert source["country"] == "ES"
+    assert source.get("english_title") is True
+    assert not source.get("translate"), "l'Espagne n'a pas besoin de table de traduction"
+
+
+def test_extraction_du_titre_anglais_echappe_dans_la_description():
+    """Le flux INCIBE double-échappe son HTML : l'extraction doit traverser les entités."""
+    entree = {"description": (
+        '&lt;span class="field field--name-title field--type-string field--label-hidden"&gt;'
+        'Multiple vulnerabilities in the Vorecol web platform&lt;/span&gt;'
+        '&lt;span class="field"&gt;Multiple vulnerabilities in the Vorecol web platform&lt;/span&gt;')}
+
+    assert veille._titre_anglais(entree) == \
+        "Multiple vulnerabilities in the Vorecol web platform"
+
+
+def test_une_description_sans_titre_anglais_renvoie_none():
+    assert veille._titre_anglais({"description": "<p>Description ordinaire</p>"}) is None
+    assert veille._titre_anglais({}) is None

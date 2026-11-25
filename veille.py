@@ -3029,6 +3029,19 @@ def collect_cisa_kev(session: requests.Session, seen: set[str]):
             continue
         title = f"{cve}: {v.get('vendorProject', '?')} {v.get('product', '?')}"[:300]
         description = v.get("shortDescription") or ""
+        # L'échéance fédérale de remédiation est l'information la plus actionnable du KEV : elle
+        # passe en tête du détail, sinon le résumé la repousse hors de l'extrait du mail.
+        detail = description
+        echeance = str(v.get("dueDate") or "").strip()
+        if echeance:
+            try:
+                jour = datetime.strptime(echeance, "%Y-%m-%d").strftime("%d/%m/%Y")
+            except ValueError:
+                jour = echeance
+            detail = f"échéance CISA : {jour} · {description}"
+        elif v.get("cwes"):
+            classes = ", ".join(str(c) for c in list(v["cwes"])[:2])
+            detail = f"{classes} · {description}"
         text = f"{title} {description}"
         countries = detect_countries(text)
         tags = analyse_badges(text, countries)
@@ -3046,7 +3059,7 @@ def collect_cisa_kev(session: requests.Session, seen: set[str]):
                 link=link,
                 date=date,
                 category=ALERTS,
-                detail=description,
+                detail=detail,
                 tags=tags,
                 score=score,
                 severity=severity_badge(score),

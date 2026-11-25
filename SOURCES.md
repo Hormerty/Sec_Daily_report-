@@ -25,6 +25,7 @@ body as RSS or Atom. A feed that answers but yields no entries is treated as dea
 | GB | NCSC UK | `https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml` | English |
 | HR | CERT.hr | `https://www.cert.hr/feed/` | Croatian |
 | HU | NKI | `https://nki.gov.hu/feed/riasztasok/` | Hungarian |
+| IE | NCSC Ireland | `https://www.ncsc.gov.ie/news/alerts.rss` | English |
 | IT | CSIRT Italia (ACN) | `https://www.acn.gov.it/portale/feedrss/-/journal/rss/20119/723192` | Italian |
 | LU | CIRCL | `https://www.circl.lu/rss.xml` | English |
 | NL | NCSC-NL | `https://advisories.ncsc.nl/rss/advisories` | Dutch |
@@ -86,7 +87,6 @@ Nothing at present.
 | Country | Authority | Status |
 |---|---|---|
 | GR | EAA / cyber.gov.gr | No public RSS; news page only |
-| IE | NCSC Ireland | No public RSS; news page only |
 | LT | NKSC | No public RSS; news page only |
 | PT | CNCS | A feed exists (`cncs.gov.pt/docs/noticias/feed-rss/index.xml`) but the publisher answers 513 to every non-browser client |
 

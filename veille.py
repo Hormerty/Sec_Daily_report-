@@ -2131,6 +2131,31 @@ def analyse_badges(text: str, countries: tuple[str, ...] = ()) -> str:
     return " ".join(badges)
 
 
+def _raison_courte(exc: Exception) -> str:
+    """Raison lisible d'un échec de source, pour la ligne « sources en erreur » du courriel.
+
+    Le rapport affichait l'exception complète — « HTTPSConnectionPool(host='sploitus.com',
+    port=443): Max retries exceeded … Read timed out. (read timeout=15) » — illisible dans un
+    mail et sans utilité pour qui le lit. Le détail complet reste dans le journal.
+    """
+    nom = type(exc).__name__
+    texte = str(exc)
+    if "Timeout" in nom or "timed out" in texte:
+        return "délai dépassé"
+    if "SSLError" in nom or "certificate" in texte:
+        return "certificat TLS refusé"
+    if "ConnectionError" in nom or "Max retries" in texte:
+        return "injoignable"
+    if "TooManyRedirects" in nom:
+        return "redirections en boucle"
+    code = re.search(r"\b(4\d\d|5\d\d)\b", texte)
+    if code:
+        return f"HTTP {code.group(1)}"
+    if isinstance(exc, (ValueError, json.JSONDecodeError)):
+        return "flux illisible"
+    return nom
+
+
 def fetch_feed(session: requests.Session, url: str, reader_only: bool = False):
     """Récupère un flux, avec une seconde tentative sous un agent de lecteur.
 
@@ -2291,7 +2316,7 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
         response = fetch_feed(session, source["url"])
     except requests.RequestException as exc:
         log.warning("%s: %s", source["name"], exc)
-        return [], f"{source['name']}: {exc}"
+        return [], f"{source['name']}: {_raison_courte(exc)}"
 
     deplace = _redirect_target(source, response)
     if deplace:
@@ -2571,7 +2596,7 @@ def collect_ransomware_victims(session: requests.Session, since: datetime):
             raise ValueError("invalid payload")
     except (requests.RequestException, ValueError, AttributeError) as exc:
         log.warning("%s: %s", SOURCE_RANSOMWARE_API, exc)
-        return [], f"{SOURCE_RANSOMWARE_API}: {exc}"
+        return [], f"{SOURCE_RANSOMWARE_API}: {_raison_courte(exc)}"
 
     articles = []
     for v in victimes:
@@ -2655,7 +2680,7 @@ def collect_hibp(session: requests.Session, since: datetime):
             raise ValueError("invalid payload")
     except (requests.RequestException, ValueError, AttributeError) as exc:
         log.warning("%s: %s", SOURCE_HIBP, exc)
-        return [], f"{SOURCE_HIBP}: {exc}"
+        return [], f"{SOURCE_HIBP}: {_raison_courte(exc)}"
 
     articles = []
     for f in fuites:

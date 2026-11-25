@@ -88,7 +88,18 @@ Nothing at present.
 | GR | EAA / cyber.gov.gr | No public RSS; news page only |
 | IE | NCSC Ireland | No public RSS; news page only |
 | LT | NKSC | No public RSS; news page only |
-| PT | CNCS | Unreachable from the test network |
+| PT | CNCS | A feed exists (`cncs.gov.pt/docs/noticias/feed-rss/index.xml`) but the publisher answers 513 to every non-browser client |
+
+Two external registries were checked as part of this audit: the
+[pulsedive/certrss](https://github.com/pulsedive/certrss) registry (37 CERTs) and the
+[threatfilter.dev](https://threatfilter.dev/sources) directory (52 feeds). Neither lists
+Greece, Ireland or Lithuania, which corroborates the findings above. The certrss registry is
+also where the Portuguese feed came from; it was tested and refused.
+
+One source is technically available but outside the current perimeter: **CERT-UA**
+(`https://cert.gov.ua/api/articles/rss`). It answers correctly, publishes APT campaign
+research rather than vulnerability advisories, updates a few times a year, and writes in
+Ukrainian — the campaign names (UAC-0277, LUNEXSTEAL) are Latin, the rest is not.
 
 Third-party bridges (RSS.app and similar) are not an option: they make the watch depend on an
 unidentified service that can disappear, change its output, or relay altered content.

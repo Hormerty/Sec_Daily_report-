@@ -72,9 +72,9 @@ items twice per run. Of the two separate alert feeds, `/alert/feed/` returns zer
 | Country | Authority | Status |
 |---|---|---|
 | GR | EAA / cyber.gov.gr | No public RSS; news page only |
-| HU | NKI | To confirm |
-| IE | NCSC Ireland | To confirm |
-| LT | NKSC | To confirm |
+| HU | NKI | Covered — see the collected table |
+| IE | NCSC Ireland | No public RSS; news page only |
+| LT | NKSC | No public RSS; news page only |
 | PT | CNCS | Unreachable from the test network |
 | RO | DNSC | Unreachable from the test network |
 | SK | SK-CERT | Feed link present but malformed |

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import requests
 
 import veille
 
@@ -416,3 +417,18 @@ def test_extraction_du_titre_anglais_echappe_dans_la_description():
 def test_une_description_sans_titre_anglais_renvoie_none():
     assert veille._titre_anglais({"description": "<p>Description ordinaire</p>"}) is None
     assert veille._titre_anglais({}) is None
+
+# --- Message lisible pour les sources en erreur ------------------------------------------
+
+@pytest.mark.parametrize("exception, attendu", [
+    (requests.exceptions.ReadTimeout("Read timed out. (read timeout=15)"), "délai dépassé"),
+    (requests.exceptions.ConnectTimeout("timed out"), "délai dépassé"),
+    (requests.exceptions.SSLError("certificate verify failed"), "certificat TLS refusé"),
+    (requests.exceptions.ConnectionError("Max retries exceeded"), "injoignable"),
+    (requests.exceptions.HTTPError("403 Client Error: Forbidden"), "HTTP 403"),
+    (requests.exceptions.TooManyRedirects("exceeded 30"), "redirections en boucle"),
+    (ValueError("bad feed"), "flux illisible"),
+])
+def test_raison_courte_d_une_source_en_erreur(exception, attendu):
+    """Le mail affichait l'exception complète ; il doit dire ce qui s'est passé."""
+    assert veille._raison_courte(exception) == attendu

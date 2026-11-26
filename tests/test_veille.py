@@ -568,3 +568,110 @@ def test_le_kev_montre_les_cwe_quand_aucune_echeance_nest_donnee(monkeypatch):
 
     assert articles[0].detail.startswith("CWE-502, CWE-79 · ")
     assert "CWE-89" not in articles[0].detail
+
+# --- SSVC (CISA Vulnrichment) -------------------------------------------------------------
+
+_DOC_SSVC = {"containers": {"adp": [{
+    "title": "CISA ADP Vulnrichment",
+    "metrics": [{"other": {"type": "ssvc", "content": {"options": [
+        {"Exploitation": "active"},
+        {"Automatable": "yes"},
+        {"Technical Impact": "total"},
+    ]}}}],
+}]}}
+
+
+class _ReponseSSVC:
+    def __init__(self, charge=None, code=200):
+        self._charge, self.status_code = charge, code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._charge
+
+
+class _SessionSSVC:
+    def __init__(self, charge=None, code=200):
+        self.charge, self.code = charge, code
+        self.urls: list[str] = []
+
+    def get(self, url, **kwargs):
+        self.urls.append(url)
+        return _ReponseSSVC(self.charge, self.code)
+
+
+def _article_ssvc(score=3, cves=("CVE-2026-135300",)):
+    return veille.Article(
+        source="X", title="t", link="https://example.com/1",
+        date=datetime(2026, 11, 25, tzinfo=timezone.utc), score=score, cves=cves)
+
+
+@pytest.mark.parametrize("cve, attendu", [
+    ("CVE-2026-135300", "2026/135xxx/CVE-2026-135300.json"),
+    ("CVE-2026-26000", "2026/26xxx/CVE-2026-26000.json"),
+    ("CVE-2026-1234", "2026/1xxx/CVE-2026-1234.json"),
+])
+def test_adresse_vulnrichment_deduite_de_la_cve(cve, attendu):
+    assert veille._url_vulnrichment(cve).endswith(attendu)
+
+
+def test_adresse_vulnrichment_refuse_ce_qui_n_est_pas_une_cve():
+    assert veille._url_vulnrichment("GHSA-1234-abcd-efgh") is None
+    assert veille._url_vulnrichment("CVE-2026") is None
+
+
+def test_lecture_du_bloc_ssvc():
+    options = veille._ssvc_du_document(_DOC_SSVC)
+
+    assert options == {"Exploitation": "active", "Automatable": "yes",
+                       "Technical Impact": "total"}
+    assert veille._ssvc_du_document({"containers": {"adp": []}}) is None
+    assert veille._ssvc_du_document({}) is None
+
+
+def test_ssvc_releve_le_score_et_pose_le_badge(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    session = _SessionSSVC(_DOC_SSVC)
+    groupe = {"ALERTS": [_article_ssvc(score=3)]}
+
+    assert veille.enrichir_ssvc(session, groupe) == 1
+
+    article = groupe["ALERTS"][0]
+    assert article.score == 10          # active +5, automatable +1, impact +1
+    assert "SSVC:active" in article.tags
+    assert article.severity == "🔴"
+    assert len(session.urls) == 1
+
+
+def test_ssvc_ne_redemande_pas_ce_qui_est_en_cache(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    veille.enrichir_ssvc(_SessionSSVC(_DOC_SSVC), {"ALERTS": [_article_ssvc()]})
+
+    seconde = _SessionSSVC(_DOC_SSVC)
+    veille.enrichir_ssvc(seconde, {"ALERTS": [_article_ssvc()]})
+
+    assert seconde.urls == []
+
+
+def test_ssvc_memorise_une_absence_de_decision(monkeypatch, tmp_path):
+    """Un 404 signifie que le CISA ne s'est pas prononcé : inutile de redemander à chaque run."""
+    monkeypatch.chdir(tmp_path)
+    premiere = _SessionSSVC(None, code=404)
+    groupe = {"ALERTS": [_article_ssvc()]}
+    assert veille.enrichir_ssvc(premiere, groupe) == 0
+    assert groupe["ALERTS"][0].score == 3
+
+    seconde = _SessionSSVC(None, code=404)
+    veille.enrichir_ssvc(seconde, {"ALERTS": [_article_ssvc()]})
+    assert seconde.urls == []
+
+
+def test_ssvc_ignore_les_articles_sans_cve(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    session = _SessionSSVC(_DOC_SSVC)
+
+    assert veille.enrichir_ssvc(session, {"ALERTS": [_article_ssvc(cves=())]}) == 0
+    assert session.urls == []

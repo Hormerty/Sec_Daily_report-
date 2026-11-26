@@ -87,6 +87,8 @@ SEEN_MAX = 3000
 DB_FILE = "stats.db"             # statistiques historiques SQLite (commité aussi)
 DB_RETENTION_DAYS = 400
 KEV_CACHE_FILE = "kev_cache.json"  # dernier catalogue KEV réussi (secours hors ligne)
+SSVC_CACHE_FILE = "ssvc_cache.json"  # décisions SSVC du CISA déjà lues (une par CVE)
+SSVC_MAX_CVE = 40                    # bornée : ~5 Ko par CVE, soit 0,2 Mo par run
 # Liste cumulative des CVE dotées d'un module Metasploit : seule la différence importe.
 METASPLOIT_URL = "https://feeds.ecrimelabs.net/data/metasploit-cve"
 METASPLOIT_CACHE_FILE = "metasploit_cache.json"
@@ -4271,6 +4273,135 @@ def apply_corroboration(groups: dict[str, list[Article]],
     return modifiees
 
 
+def _url_vulnrichment(cve: str) -> str | None:
+    """Adresse du fichier CISA Vulnrichment d'une CVE.
+
+    L'arborescence du dépôt range les CVE par année puis par millier (« 2026/26xxx/ »), si
+    bien que l'adresse se déduit de l'identifiant : aucun index à interroger.
+    """
+    morceaux = cve.strip().upper().split("-")
+    if (len(morceaux) != 3 or morceaux[0] != "CVE"
+            or not morceaux[1].isdigit() or not morceaux[2].isdigit()):
+        return None
+    annee, numero = morceaux[1], morceaux[2]
+    dossier = (numero[:-3] or "0") + "xxx"
+    return (f"https://raw.githubusercontent.com/cisagov/vulnrichment/develop/"
+            f"{annee}/{dossier}/CVE-{annee}-{numero}.json")
+
+
+def _ssvc_du_document(donnees) -> dict[str, str] | None:
+    """Options SSVC d'un enregistrement CVE 5.x, ou None si le CISA ne s'est pas prononcé."""
+    conteneurs = donnees.get("containers") if isinstance(donnees, dict) else None
+    for conteneur in (conteneurs or {}).get("adp") or []:
+        if not isinstance(conteneur, dict):
+            continue
+        if "Vulnrichment" not in str(conteneur.get("title") or ""):
+            continue
+        for metrique in conteneur.get("metrics") or []:
+            autre = (metrique or {}).get("other") or {}
+            if str(autre.get("type")) != "ssvc":
+                continue
+            options: dict[str, str] = {}
+            for option in (autre.get("content") or {}).get("options") or []:
+                if isinstance(option, dict):
+                    options.update({str(k): str(v) for k, v in option.items()})
+            if options:
+                return options
+    return None
+
+
+def _lire_cache_ssvc() -> dict[str, dict[str, str]]:
+    try:
+        data = json.loads(Path(SSVC_CACHE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): v for k, v in data.items() if isinstance(v, dict)}
+
+
+def enrichir_ssvc(session: requests.Session, groups: dict[str, list[Article]],
+                  maximum: int = SSVC_MAX_CVE) -> int:
+    """Applique les décisions SSVC du CISA aux articles qui portent une CVE.
+
+    Le moteur devine l'exploitation par les mots (« exploitation active », « dans la nature ») :
+    une formulation inhabituelle lui échappe. Le SSVC est une décision du CISA — Exploitation
+    (none/poc/active), Automatable, Technical Impact — lue dans CISA Vulnrichment (CC0).
+
+    Chaque CVE coûte une requête d'environ 5 Ko : on ne traite que les articles de tête, et le
+    résultat est mis en cache. Un échec reste muet, c'est un enrichissement, pas une source.
+    """
+    articles = [a for items in groups.values() for a in items if a.cves]
+    if not articles:
+        return 0
+    articles.sort(key=lambda a: a.score, reverse=True)
+
+    cache = _lire_cache_ssvc()
+    demandees: list[str] = []
+    for article in articles:
+        for cve in article.cves:
+            if cve not in cache and cve not in demandees:
+                demandees.append(cve)
+                if len(demandees) >= maximum:
+                    break
+        if len(demandees) >= maximum:
+            break
+
+    nouvelles = 0
+    ajouts = 0
+    for cve in demandees:
+        url = _url_vulnrichment(cve)
+        if not url:
+            continue
+        try:
+            reponse = session.get(url, timeout=TIMEOUT)
+            if reponse.status_code == 404:
+                cache[cve] = {}          # le CISA ne s'est pas prononcé : inutile d'insister
+                ajouts += 1
+                continue
+            reponse.raise_for_status()
+            options = _ssvc_du_document(reponse.json())
+        except (requests.RequestException, ValueError, AttributeError) as exc:
+            log.debug("SSVC %s : %s", cve, exc)
+            continue
+        if options:
+            cache[cve] = options
+            nouvelles += 1
+            ajouts += 1
+    if ajouts:
+        _write_json_atomic(SSVC_CACHE_FILE, cache)
+
+    modifiees = 0
+    for article in articles:
+        options = next((cache[c] for c in article.cves if cache.get(c)), None)
+        if not options:
+            continue
+        bonus = 0
+        badges: list[str] = []
+        exploitation = str(options.get("Exploitation") or "").lower()
+        if exploitation == "active":
+            bonus += 5
+            badges.append("⚔️ SSVC:active")
+        elif exploitation == "poc":
+            bonus += 2
+            badges.append("🧪 SSVC:poc")
+        if str(options.get("Automatable") or "").lower() == "yes":
+            bonus += 1
+            badges.append("🤖 SSVC:automatable")
+        if str(options.get("Technical Impact") or "").lower() == "total":
+            bonus += 1
+        if not bonus:
+            continue
+        article.score += bonus
+        article.severity = severity_badge(article.score)
+        if badges:
+            article.tags = f"{' '.join(badges)} {article.tags}".strip()
+        modifiees += 1
+    if modifiees:
+        log.info("SSVC : %d article(s) enrichi(s), %d CVE lues", modifiees, nouvelles)
+    return modifiees
+
+
 def build_subject(now: datetime, totals: dict) -> str:
     """Sujet du rapport : identité, date, puis les chiffres qui disent s'il faut ouvrir.
 
@@ -4410,6 +4541,10 @@ def main() -> int:
                 for c_brut in a_brut.cves:
                     cve_sources.setdefault(c_brut, set()).add(a_brut.source)
         apply_corroboration(groups, cve_sources)
+        try:
+            enrichir_ssvc(session, groups)
+        except Exception as exc:  # noqa: BLE001 - enrichissement : jamais bloquant
+            log.warning("SSVC : enrichissement ignore (%s)", exc)
         groups = dict(sorted(groups.items(), key=lambda kv: CATEGORY_ORDER.index(kv[1][0].category)))
 
         reminders: list[dict] = []

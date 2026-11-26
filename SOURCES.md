@@ -175,6 +175,11 @@ already read answers the same question authoritatively, and Sploitus, Exploit-DB
 feed already carry the PoCs; adopting this one would cost 17 MB a day, or one more request per
 enriched CVE, for the number of proofs rather than their existence. The bulk files also hold
 noise (dozens of CVE-0000-0000 lines). Worth remembering if SSVC coverage ever feels thin.
+Its neighbour [nomi-sec/PoC-in-GitHub](https://github.com/nomi-sec/PoC-in-GitHub) does the same
+job with JSON instead of markdown — 8 236 stars, CC0, one file per CVE holding the GitHub API
+record of each proof-of-concept repository, refreshed daily. Easier to parse than markdown, and
+still the same answer to the same question; the only extra it carries is how many repositories
+exist and how popular they are, which does not change a remediation decision.
 
 A third lead came from [haxdoggy/vulnerability-databases](https://github.com/haxdoggy/vulnerability-databases),
 a curated directory of vulnerability databases (a README table and a `databases.json`, CC-BY-4.0).

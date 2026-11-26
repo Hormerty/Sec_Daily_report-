@@ -717,3 +717,62 @@ def test_l_alerte_sans_stack_reste_aux_cert(monkeypatch):
     monkeypatch.setattr(veille, "STACK_PRODUCTS", {})
 
     assert len(veille.sources_alerte()) == len(veille.ALERT_SOURCES)
+
+# --- Alertes en chat : message et publication ---------------------------------------------
+
+def _article_score(score=16):
+    return veille.Article(
+        source="CERT-FR", title="Multiples vulnerabilites dans Cisco IOS",
+        link="https://cert.example/1", date=datetime(2026, 11, 26, tzinfo=timezone.utc),
+        score=score)
+
+
+def test_le_message_d_alerte_tient_en_quelques_lignes():
+    texte = veille.message_alerte([_article_score()], reste=2)
+
+    assert "CERT-FR" in texte
+    assert "score 16" in texte
+    assert "https://cert.example/1" in texte
+    assert "2 autre(s)" in texte
+    assert len(texte.splitlines()) <= 6
+
+
+def test_poster_alertes_parle_a_chaque_canal(monkeypatch):
+    """Slack, Discord et Telegram n'attendent pas le même corps : on vérifie les trois."""
+    envois = []
+
+    class Reponse:
+        status_code = 200
+
+    def faux_post(url, json=None, timeout=None):
+        envois.append((url, json))
+        return Reponse()
+
+    monkeypatch.setattr(veille.requests, "post", faux_post)
+    monkeypatch.setenv("WEBHOOKS", json.dumps([
+        {"type": "slack", "url": "https://hooks.slack.com/x"},
+        {"type": "discord", "url": "https://discord.com/api/webhooks/y"},
+        {"type": "telegram", "token": "JETON", "chat": "42"},
+    ]))
+
+    assert veille.poster_alertes("bonjour") == 3
+    urls = [url for url, _ in envois]
+    assert "https://hooks.slack.com/x" in urls
+    assert any("api.telegram.org/botJETON/sendMessage" in url for url in urls)
+    slack = next(corps for url, corps in envois if "slack" in url)
+    discord = next(corps for url, corps in envois if "discord" in url)
+    assert "text" in slack           # Slack attend « text »
+    assert "content" in discord      # Discord attend « content »
+
+
+def test_poster_alertes_ignore_un_canal_incomplet(monkeypatch):
+    monkeypatch.setattr(veille.requests, "post", lambda *a, **k: None)
+    monkeypatch.setenv("WEBHOOKS", json.dumps([{"type": "slack"}, {"type": "signal"}]))
+
+    assert veille.poster_alertes("bonjour") == 0
+
+
+def test_poster_alertes_sans_webhook_ne_fait_rien(monkeypatch):
+    monkeypatch.delenv("WEBHOOKS", raising=False)
+
+    assert veille.poster_alertes("bonjour") == 0

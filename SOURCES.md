@@ -165,6 +165,17 @@ third party. Left out, but worth remembering if the stack ever accepts a lockfil
 What both do well is deduplicate per vulnerability and merge severity data. That is precisely
 what the engine already does across its 123 feeds, with the country provenance kept.
 
+**[trickest/cve](https://github.com/trickest/cve) — a public proof-of-concept index.** MIT,
+8 255 stars, refreshed daily: one markdown sheet per CVE (CVE-2026-102275.md, 1,4 KB) with
+product, versions, CWE, description and the PoC links, at a path derived from the identifier —
+the same shape as CISA Vulnrichment. Two bulk files sit at the root, github.txt (17,4 MB) and
+
+eferences.txt (14,4 MB), as CVE-xxxx - url pairs. Refused for now: the SSVC decision we
+already read answers the same question authoritatively, and Sploitus, Exploit-DB and the ZDI
+feed already carry the PoCs; adopting this one would cost 17 MB a day, or one more request per
+enriched CVE, for the number of proofs rather than their existence. The bulk files also hold
+noise (dozens of CVE-0000-0000 lines). Worth remembering if SSVC coverage ever feels thin.
+
 A third lead came from [haxdoggy/vulnerability-databases](https://github.com/haxdoggy/vulnerability-databases),
 a curated directory of vulnerability databases (a README table and a `databases.json`, CC-BY-4.0).
 It is a catalogue, not a service: it offers neither an API nor downloadable collections, and its

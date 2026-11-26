@@ -4727,7 +4727,69 @@ ALERT_THRESHOLD = _env_int("ALERT_THRESHOLD", 14, 1, "SEUIL_ALERTE")
 ALERT_STACK_THRESHOLD = _env_int("ALERT_STACK_THRESHOLD", 5, 1)
 ALERT_WINDOW_HOURS = _env_int("ALERT_WINDOW_HOURS", 8, 1, "ALERTE_FENETRE_HEURES")
 ALERT_MAX = _env_int("ALERT_MAX", 5, 1, "ALERTE_MAX")   # alertes par e-mail ; le reste part au passage suivant
+# Canaux de livraison. Le courriel reste actif par défaut ; les webhooks sont une liste JSON
+# ([{"type": "slack", "url": …}]) fournie par l'application. Sans aucun canal actif, le
+# courriel reprend la main : mieux vaut un envoi de trop qu'une alerte perdue.
+ALERT_MAIL = _env_bool("ALERT_MAIL", True)
+WEBHOOKS_BRUT = os.environ.get("WEBHOOKS", "").strip()
 ALERT_MODE = "--alerte" in sys.argv[1:] or _env_bool("MODE_ALERTE", False)
+
+
+def _cibles_webhooks() -> list[dict]:
+    """Canaux de discussion configurés, relus à chaque appel (l'application les passe en env)."""
+    brut = os.environ.get("WEBHOOKS", "").strip()
+    if not brut:
+        return []
+    try:
+        cibles = json.loads(brut)
+    except ValueError:
+        log.warning("WEBHOOKS illisible : aucun canal de discussion utilise")
+        return []
+    return [c for c in cibles if isinstance(c, dict)] if isinstance(cibles, list) else []
+
+
+def message_alerte(articles: list[Article], reste: int = 0) -> str:
+    """Version chat d'une alerte : titre court, une ligne par faille, le lien en dessous."""
+    lignes = [f"SecDailyBrief — {len(articles)} alerte(s)"]
+    for article in articles:
+        lignes.append(f"- {article.title} (score {article.score}, {article.source})")
+        if article.link:
+            lignes.append(f"  {article.link}")
+    if reste > 0:
+        lignes.append(f"… et {reste} autre(s) au prochain passage.")
+    return "\n".join(lignes)
+
+
+def poster_alertes(texte: str) -> int:
+    """Publie l'alerte sur les canaux de discussion configurés ; renvoie le nombre de succès.
+
+    Un webhook est un secret : l'URL suffit à publier. Un échec est journalisé et n'empêche
+    pas les autres canaux — c'est un doublon de l'e-mail, jamais son remplaçant.
+    """
+    cibles = _cibles_webhooks()
+    if not cibles:
+        return 0
+    publies = 0
+    for cible in cibles:
+        genre = str(cible.get("type") or "").lower()
+        try:
+            if genre == "slack" and cible.get("url"):
+                requests.post(cible["url"], json={"text": texte}, timeout=15)
+            elif genre == "discord" and cible.get("url"):
+                requests.post(cible["url"], json={"content": texte[:1900]}, timeout=15)
+            elif genre == "telegram" and cible.get("token") and cible.get("chat"):
+                requests.post(
+                    f"https://api.telegram.org/bot{cible['token']}/sendMessage",
+                    json={"chat_id": str(cible["chat"]), "text": texte[:4000]},
+                    timeout=15)
+            else:
+                log.warning("Canal %s incomplet : ignore", genre or "?")
+                continue
+            publies += 1
+            log.info("Alerte publiee sur %s", genre)
+        except requests.RequestException as exc:
+            log.warning("Alerte %s : %s", genre, _raison_courte(exc))
+    return publies
 
 
 def load_alert_state() -> tuple[list[str], bool]:
@@ -4933,8 +4995,17 @@ def main_alert() -> int:
     if not majors:
         return 1 if len(errors) >= len(RSS_SOURCES) + 1 else 0
     to_send = majors[:ALERT_MAX]
-    subject, html_body, text_body = render_alert(to_send, len(majors) - len(to_send))
-    send_email(config, subject, html_body, text_body)
+    reste = len(majors) - len(to_send)
+    # Un courriel, et/ou des canaux de discussion. Si l'utilisateur a décoché le courriel
+    # sans configurer de webhook, on garde le courriel : une alerte perdue serait pire.
+    canaux = _cibles_webhooks()
+    if not ALERT_MAIL and not canaux:
+        log.warning("Aucun canal actif : le courriel est utilise par defaut")
+    if ALERT_MAIL or not canaux:
+        subject, html_body, text_body = render_alert(to_send, reste)
+        send_email(config, subject, html_body, text_body)
+    if canaux:
+        poster_alertes(message_alerte(to_send, reste))
     save_alert_state(previous, to_send)  # après l'envoi : un échec SMTP sera retenté au passage suivant
     return 0
 

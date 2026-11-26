@@ -199,6 +199,15 @@ rather than a discovery. Its most interesting entry is **GCVE**, CIRCL's decentr
 database: `https://db.gcve.eu/api/vulnerability/GCVE-1-2026-0001` answers with a CVE-5 style
 JSON record. It is a lookup base, like EUVD, not a feed, and the same reasoning applies.
 
+**[alex-ilgayev/secfeed](https://github.com/alex-ilgayev/secfeed)** is a Go aggregator with an
+AI summariser, last pushed in March 2025. Nothing in it is usable here, but its config.yml holds
+25 feeds, so it was read as a candidate list: 13 are already collected, and of the 12 others,
+whose state was checked on 26 November, eight are gone — Threatpost's last entry dates from August
+2022, Rapid7's blog answers 404, Veracode's feed is empty, Sophos and Digital Shadows no longer
+answer. The four survivors are media or vendor research (SecurityAffairs, Ars Technica, ZDNet,
+Check Point, Kaspersky, Tenable). None is an advisory source, and the brief already carries sixty
+blogs: nothing added.
+
 ## Checking a candidate
 
 ```bash

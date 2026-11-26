@@ -1544,6 +1544,44 @@ RSS_SOURCES = [
     {"name": "Mastodon (infosec)", "url": "https://mastodon.social/tags/infosec.rss", "category": BLOGS, "filter": True, "strong": True, "max": 8},
 ]
 
+# Le mode alerte parcourait tous les flux : 43 Mo par passage, dont deux tiers pour trois
+# hôtes (elastic.co, MSRC, feedburner). L'alerte n'a pas besoin des blogs — elle regarde les
+# CERT nationaux, donc tout flux portant un pays, plus trois organismes sans pays qui
+# publient des avis techniques. Mesuré : 11,5 Mo par passage au lieu de 43,5.
+ALERT_EXTRA = ("CISA Advisories", "JPCERT/CC", "CERT/CC")
+ALERT_SOURCES = tuple(source for source in RSS_SOURCES
+                      if source.get("country") or source["name"] in ALERT_EXTRA)
+
+
+def sources_alerte() -> tuple[dict, ...]:
+    """Flux du mode alerte : les CERT, plus les PSIRT des éditeurs présents dans la stack.
+
+    La liste restreinte aux CERT ramenait le passage de 43 à 11 Mo, mais elle perdait aussi
+    les avis Cisco PSIRT et Microsoft MSRC. Mesuré sur un rapport réel : **aucun** des
+    articles citant la stack de l'utilisateur ne venait d'une source d'alerte. Les flux dont
+    le nom contient un mot de la stack rentrent donc dans l'alerte — les blogs restent
+    dehors, ils ne portent pas d'avis — ce qui coûte 3,3 Mo sur 43.
+    """
+    selection = list(ALERT_SOURCES)
+    vus = {source["name"] for source in selection}
+    mots: set[str] = set()
+    for variantes in STACK_PRODUCTS.values():
+        for variante in variantes:
+            texte = str(variante).strip().lower()
+            if len(texte) > 2:
+                mots.add(texte)
+                mots.add(texte.split()[0])
+    for source in RSS_SOURCES:
+        # Seuls les avis comptent : un blog Cisco Talos ou Microsoft Security parle de la
+        # stack sans publier de correctif, et n'a rien à faire dans une alerte.
+        if source["name"] in vus or source.get("category") != ALERTS:
+            continue
+        nom = source["name"].lower()
+        if any(mot in nom for mot in mots if len(mot) > 2):
+            selection.append(source)
+            vus.add(source["name"])
+    return tuple(selection)
+
 # Lien affiché derrière le nom d'une source : la racine de son site, jamais son flux RSS — ouvrir
 # du XML n'aurait aucun intérêt à l'écran.
 _SITE_ALIASES = {"feeds.feedburner.com": "https://thehackernews.com/",
@@ -4859,7 +4897,7 @@ def main_alert() -> int:
         log.exception("%s: unexpected failure", SOURCE_METASPLOIT)
         results.append(([], f"{SOURCE_METASPLOIT}: unexpected error ({type(exc).__name__})"))
     with ThreadPoolExecutor(max_workers=8) as pool:
-        results += list(pool.map(lambda s: collect_source(s, since, set()), RSS_SOURCES))
+        results += list(pool.map(lambda s: collect_source(s, since, set()), sources_alerte()))
 
     results = dedupe_ransomware(results)
     errors = [err for _, err in results if err]

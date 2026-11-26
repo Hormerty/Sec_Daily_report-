@@ -675,3 +675,45 @@ def test_ssvc_ignore_les_articles_sans_cve(monkeypatch, tmp_path):
 
     assert veille.enrichir_ssvc(session, {"ALERTS": [_article_ssvc(cves=())]}) == 0
     assert session.urls == []
+
+# --- Liste de sources dédiée à l'alerte ---------------------------------------------------
+
+def test_l_alerte_ne_parcourt_pas_les_blogs():
+    """Le mode alerte lisait les 124 flux : 43 Mo par passage, deux tiers pour trois hôtes."""
+    noms = {source["name"] for source in veille.ALERT_SOURCES}
+
+    assert len(veille.ALERT_SOURCES) < len(veille.RSS_SOURCES)
+    # Tous les CERT nationaux restent, avec les trois organismes qui n'ont pas de pays.
+    assert "CERT-FR" in noms
+    assert "CERT.at" in noms
+    assert "NCSC Ireland" in noms
+    assert "CISA Advisories" in noms
+    assert "JPCERT/CC" in noms
+    # Les flux lourds et les blogs sortent de l'alerte, pas du rapport quotidien.
+    assert "Sploitus" not in noms
+    assert "Microsoft MSRC" not in noms
+    assert all(s["name"] in {x["name"] for x in veille.RSS_SOURCES}
+               for s in veille.ALERT_SOURCES)
+
+
+def test_chaque_source_d_alerte_porte_un_pays_ou_est_declaree():
+    for source in veille.ALERT_SOURCES:
+        assert source.get("country") or source["name"] in veille.ALERT_EXTRA
+
+def test_l_alerte_garde_les_psirt_des_produits_suivis(monkeypatch):
+    """Une liste limitée aux CERT perdait Cisco PSIRT et MSRC : la stack les fait rentrer."""
+    monkeypatch.setattr(veille, "STACK_PRODUCTS", {"Cisco": ["cisco"], "Microsoft 365": ["microsoft 365"]})
+
+    noms = {source["name"] for source in veille.sources_alerte()}
+
+    assert "Cisco PSIRT" in noms
+    assert "Microsoft MSRC" in noms
+    # Les blogs restent dehors même quand leur nom cite un produit suivi.
+    assert "Cisco Talos" not in noms
+    assert "Microsoft Security" not in noms
+
+
+def test_l_alerte_sans_stack_reste_aux_cert(monkeypatch):
+    monkeypatch.setattr(veille, "STACK_PRODUCTS", {})
+
+    assert len(veille.sources_alerte()) == len(veille.ALERT_SOURCES)

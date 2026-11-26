@@ -165,6 +165,16 @@ third party. Left out, but worth remembering if the stack ever accepts a lockfil
 What both do well is deduplicate per vulnerability and merge severity data. That is precisely
 what the engine already does across its 123 feeds, with the country provenance kept.
 
+**[CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5) — the official CVE List.**
+3 324 stars, pushed every few minutes, and the registry every other source derives from. It
+offers no daily feed: cves/delta.json covers the window since the mirror last refreshed (404
+bytes on 26 November, one updated CVE), and cves/deltaLog.json holds the rolling log at 28,3 MB
+for 3 786 entries. The clean interface is the CVE Services API
+(cveawg.mitre.org/api/cve/CVE-…, 3,2 KB, no key). Kept out because the engine is
+source-driven: an item enters the report because a publisher wrote it, never because a registry
+numbered it. Its real use would be a fallback when NVD has not yet analysed a CVE we already
+carry — the CNA description and affected versions are there before NVD's are.
+
 **[trickest/cve](https://github.com/trickest/cve) — a public proof-of-concept index.** MIT,
 8 255 stars, refreshed daily: one markdown sheet per CVE (CVE-2026-102275.md, 1,4 KB) with
 product, versions, CWE, description and the PoC links, at a path derived from the identifier —

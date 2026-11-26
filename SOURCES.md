@@ -204,7 +204,15 @@ AI summariser, last pushed in March 2025. Nothing in it is usable here, but its 
 25 feeds, so it was read as a candidate list: 13 are already collected, and of the 12 others,
 whose state was checked on 26 November, eight are gone — Threatpost's last entry dates from August
 2022, Rapid7's blog answers 404, Veracode's feed is empty, Sophos and Digital Shadows no longer
-answer. The four survivors are media or vendor research (SecurityAffairs, Ars Technica, ZDNet,
+answer. A namesake, **[SharonBrizinov/secfeed](https://github.com/SharonBrizinov/secfeed)**, is a closer
+cousin than the Go one: 346 lines of Python, MIT, SQLite state, a poll every two hours and
+notifications to Slack, Telegram, Signal or Discord. Its method is the one refused here — HTML
+scraped by regular expressions — and its sources are CISA and CERT-EU, already collected, plus
+research blogs. Tested on 26 November: Claroty Team82 answers 410 Gone, SRC Incite and doar-e
+publish no feed, Tenable's blog is alive. Nothing added, but one idea worth naming: chat delivery
+as an alternative to mail, if alerts should ever reach a phone.
+
+The four survivors are media or vendor research (SecurityAffairs, Ars Technica, ZDNet,
 Check Point, Kaspersky, Tenable). None is an advisory source, and the brief already carries sixty
 blogs: nothing added.
 

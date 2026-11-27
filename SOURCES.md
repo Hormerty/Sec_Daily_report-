@@ -10,6 +10,39 @@ next to the vulnerability of the day.
 Verified on 2026-11-25 by requesting each URL, checking the content type, and parsing the
 body as RSS or Atom. A feed that answers but yields no entries is treated as dead.
 
+## Reference data, which is not a feed
+
+Everything above is a *feed*: someone writes a headline, and we link to it. A second category is
+consumed by the engine and was never described here, because the rule at the top of this page only
+covers advisory feeds: the **reference datasets**. They have no headline, no author and no
+publication rhythm; they are lookup tables, and they carry their own terms.
+
+| Dataset | Used for | Terms |
+|---|---|---|
+| **CISA KEV** | exploited-in-the-wild flag, remediation deadline | US Government work, public domain |
+| **NVD** | CVSS, product, vendor | US Government work, public domain |
+| **GitHub Advisory Database** | advisories for open-source components | CC BY 4.0 |
+| **CVE List V5** (`cvelistV5`) | CVE records the day they are published, with their `affected` products | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse) |
+| **EPSS** (FIRST) | exploitation probability | to confirm before redistribution |
+| **EUVD** (ENISA) | European vulnerability database | to confirm before redistribution |
+
+The CVE Program Terms of Use are precise rather than vague: they grant a perpetual, worldwide,
+royalty-free, irrevocable licence to reproduce, prepare derivative works of, and distribute the
+CVE List, **provided every copy reproduces MITRE's copyright designation and the licence itself**.
+That is permissive enough for this project, and it is the only one of the six that asks anything in
+return.
+
+Consequences for the code, when the CVE collector is written:
+
+- the report footer carries `CVE® is a registered trademark of The MITRE Corporation. Records used
+  under the CVE Program Terms of Use.`;
+- the same notice appears in the README, so a copy of the report is never handed over without it;
+- the two "to confirm" rows are checked before any of their data is redistributed, not merely read
+  for ranking.
+
+This section does not change the rule at the top of the page. It names the second category, so the
+next person does not have to rediscover that a lookup table is not a feed.
+
 ## Collected advisory feeds
 
 | Country | Authority | Feed | Title language |

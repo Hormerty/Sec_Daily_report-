@@ -3853,6 +3853,20 @@ def inject_section_articles(groups: dict[str, list[Article]],
     return displayed
 
 
+def _lien_html(url: str, texte: str) -> str:
+    """Un lien seulement s'il mène quelque part de sûr.
+
+    Un flux peut annoncer `javascript:` ou `data:` : le rendu de l'alerte filtrait déjà les
+    schémas, le rapport quotidien non. Le rapport s'ouvre dans un navigateur (bouton « Ouvrir
+    le dernier rapport ») : un lien de ce genre y exécutait du script dans l'origine du fichier.
+    """
+    url = str(url or "")
+    if url.startswith(("http://", "https://")):
+        return (f'<a href="{html.escape(url, quote=True)}" target="_blank" '
+                f'rel="noopener noreferrer">{html.escape(str(texte))}</a>')
+    return html.escape(str(texte))
+
+
 def render_html(groups: dict[str, list[Article]], errors: list[str],
                 stats: dict | None = None,
                 reminders: list[dict] | None = None, vendors: list[dict] | None = None,
@@ -3957,7 +3971,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             cve_html = f'<br><small>{_cve_links_html(a.cves[0])}</small>' if a.cves else ""
             parts.append(
                 f'<li style="margin-bottom:6px"><b>{e(_badges(a))}</b> '
-                f'<a href="{e(a.link, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.title)}</a>{metr} '
+                f'{_lien_html(a.link, a.title)}{metr} '
                 f'<small>({e(a.source)})</small>{qual_html}{cve_html}</li>'
             )
         parts.append("</ul>")
@@ -4006,12 +4020,12 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             qual = _qualifiers(a)
             qual_html = f"<br><small>{e(qual)}</small>" if qual else ""
             also = ("<br><small>Also covered by: " + ", ".join(
-                f'<a href="{e(link, quote=True)}" target="_blank" rel="noopener noreferrer">{e(src)}</a>'
+                f'{_lien_html(link, src)}'
                 for src, link in a.also_covered) + "</small>") if a.also_covered else ""
             parts.append(
                 f'<li style="margin-bottom:10px">{tag}'
                 f'{"🆕 " if a.link in (fresh or ()) else ""}'
-                f'<a href="{e(a.link, quote=True)}" target="_blank" rel="noopener noreferrer">{e(a.title)}</a>{metr}{detail}{qual_html}{also}</li>'
+                f'{_lien_html(a.link, a.title)}{metr}{detail}{qual_html}{also}</li>'
             )
         parts.append("</ul>")
 
@@ -4026,8 +4040,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             for a in items:
                 parts.append(
                     f'<li style="margin-bottom:4px">{e(_badges(a))} '
-                    f'<a href="{e(a.link, quote=True)}" target="_blank" rel="noopener noreferrer">'
-                    f"{e(a.title)}</a> <small>({e(a.source)})</small></li>"
+                    f'{_lien_html(a.link, a.title)} <small>({e(a.source)})</small></li>'
                 )
             parts.append("</ul>")
     else:
@@ -4056,8 +4069,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             for a in items:
                 parts.append(
                     f'<li style="margin-bottom:4px">{e(_badges(a))} '
-                    f'<a href="{e(a.link, quote=True)}" target="_blank" rel="noopener noreferrer">'
-                    f"{e(a.title)}</a> <small>({e(a.source)})</small></li>"
+                    f'{_lien_html(a.link, a.title)} <small>({e(a.source)})</small></li>'
                 )
             parts.append("</ul>")
     else:

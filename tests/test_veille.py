@@ -859,3 +859,42 @@ def test_le_bandeau_silencieux_lit_la_fraicheur_des_flux(tmp_path):
     muettes = veille.silent_sources(base, datetime(2026, 11, 27))
 
     assert "CERT-FR" not in dict(muettes)
+
+def test_un_lien_javascript_n_entre_pas_dans_le_rapport():
+    """Le rapport s'ouvre dans un navigateur : un href `javascript:` y executerait du script.
+
+    Le flux est la seule source de ce lien, et il n'est pas de nous.
+    """
+    from datetime import datetime, timezone
+
+    article = veille.Article(
+        source="Source piegee", title="Titre anodin",
+        link="javascript:alert(document.domain)",
+        date=datetime(2026, 11, 27, tzinfo=timezone.utc), category=veille.ALERTS,
+        detail="", tags=(), score=16, severity="critique", countries=(), stack=("Cisco",),
+        cves=(), ttps=(), actors=(), epss=None, cvss=None, product="", corroborated=0,
+        also_covered=(("Autre source", "data:text/html,<script>alert(1)</script>"),),
+    )
+
+    html = veille.render_html({veille.ALERTS: [article]}, errors=[])
+
+    assert "javascript:" not in html
+    assert "data:text/html" not in html
+    assert "Titre anodin" in html          # le titre reste affiche, en texte
+    assert "Source piegee" in html
+
+
+def test_un_lien_http_reste_cliquable():
+    from datetime import datetime, timezone
+
+    article = veille.Article(
+        source="CERT-FR", title="Avis", link="https://cert.ssi.gouv.fr/avis/1",
+        date=datetime(2026, 11, 27, tzinfo=timezone.utc), category=veille.ALERTS,
+        detail="", tags=(), score=16, severity="critique", countries=(), stack=(),
+        cves=(), ttps=(), actors=(), epss=None, cvss=None, product="", corroborated=0,
+        also_covered=(),
+    )
+
+    html = veille.render_html({veille.ALERTS: [article]}, errors=[])
+
+    assert 'href="https://cert.ssi.gouv.fr/avis/1"' in html

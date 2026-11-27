@@ -1,10 +1,11 @@
-﻿"""Non-regression tests for veille.py.
+"""Non-regression tests for veille.py.
 
 Plain functions only: they run under pytest (`python -m pytest -q`) and can also
 be called directly by a small runner, so no fixture is required.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -735,6 +736,15 @@ def test_le_message_d_alerte_tient_en_quelques_lignes():
     assert "https://cert.example/1" in texte
     assert "2 autre(s)" in texte
     assert len(texte.splitlines()) <= 6
+
+
+def test_l_entete_d_alerte_donne_l_heure_et_pas_de_cadratin():
+    """Dans un salon, trois jours plus tard, rien ne disait quand l'alerte etait partie."""
+    entete = veille.message_alerte([_article_score()]).splitlines()[0]
+
+    assert entete.startswith("SecDailyBrief · 1 alerte(s) · ")
+    assert "—" not in entete
+    assert re.search(r"\d{2}/\d{2} \d{2}:\d{2}$", entete)
 
 
 def test_poster_alertes_parle_a_chaque_canal(monkeypatch):

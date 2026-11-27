@@ -4750,7 +4750,10 @@ def _cibles_webhooks() -> list[dict]:
 
 def message_alerte(articles: list[Article], reste: int = 0) -> str:
     """Version chat d'une alerte : titre court, une ligne par faille, le lien en dessous."""
-    lignes = [f"SecDailyBrief — {len(articles)} alerte(s)"]
+    horodatage = datetime.now().astimezone().strftime("%d/%m %H:%M")
+    # Le cadratin est remplace par un point median, et la date ajoutee : dans un salon, trois
+    # jours plus tard, rien ne disait quand l'alerte etait partie.
+    lignes = [f"SecDailyBrief · {len(articles)} alerte(s) · {horodatage}"]
     for article in articles:
         lignes.append(f"- {article.title} (score {article.score}, {article.source})")
         if article.link:

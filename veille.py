@@ -1007,7 +1007,7 @@ RE_FILTER_ROOTS = re.compile(
     r"breach|leak|fuite|violation de donn|vol de donn|attack|attaqu|intrusion|compromis|"
     r"compromised|s[ée]cur|correctif|espionn|spying|usurpation|arnaque|scam|fraud|spoof|"
     r"credential|identifiant|mot de passe|password|authenti|chiffrement|encrypt|firewall|"
-    r"pare-feu|dark ?web|darknet|sabotage|deepfake|rgpd|gdpr|cnil|pentest|bug bounty",
+    r"pare-feu|dark ?web|darknet|sabotage|deepfake|rgpd|gdpr|pentest|bug bounty",
     re.IGNORECASE,
 )
 # Termes courts : correspondance sur mots entiers pour éviter les faux positifs
@@ -1488,7 +1488,10 @@ RSS_SOURCES = [
     {"name": "FrenchBreaches", "url": "https://frenchbreaches.com/feed.xml", "category": DARKWEB, "country": "FR"},
     {"name": "Databreaches.net", "url": "https://databreaches.net/feed/", "category": DARKWEB},
     # Autorite francaise : sanctions RGPD et suites des fuites de donnees.
-    {"name": "CNIL", "url": "https://www.cnil.fr/fr/rss.xml", "category": DARKWEB, "country": "FR"},
+    {"name": "CNIL", "url": "https://www.cnil.fr/fr/rss.xml", "category": NEWS, "country": "FR",
+     # Un regulateur publie des sanctions et des guides : seules les premieres nous parlent.
+     "require_any": ["sanction", "amende", "mise en demeure", "violation", "fuite",
+                      "piratage", "atteinte", "plainte", "condamne"]},
     # Ventes de bases revendiquees, souvent publiees avant toute confirmation : poids modere.
     {"name": "Dark Web Informer", "url": "https://darkwebinformer.com/rss/", "category": DARKWEB},
     # Actualités & médias
@@ -2483,13 +2486,22 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
             skipped += 1
             log.info("  skipped (sans %s) [%s]: %s", requis, source["name"], title)
             continue
+        # « require_any » : admission par liste, pour les sources dont on ne veut qu'une partie
+        # de la production — un regulateur publie des sanctions et des guides, pas les deux.
+        requis_parmi = source.get("require_any")
+        if requis_parmi and not any(f.casefold() in title.casefold() for f in requis_parmi):
+            skipped += 1
+            log.info("  skipped (hors liste) [%s]: %s", source["name"], title)
+            continue
         # « translate » vaut une langue depuis l'ouverture aux CERT nationaux ; True reste
         # accepté et signifie l'allemand, pour ne pas casser les sources déjà déclarées.
         langue = source.get("translate")
         if langue:
             title = translate_title(title, "de" if langue is True else str(langue))
         text = _entry_text(entry)
-        if filtered and not is_relevant(text):
+        # Le titre decide de l'admission ; le resume informe le score. Juger sur le resume
+        # laissait passer un article sur macOS parce qu'il contenait le mot « securite ».
+        if filtered and not source.get("require_any") and not is_relevant(title):
             skipped += 1
             log.info("  skipped (off-topic) [%s]: %s", source["name"], title)
             continue

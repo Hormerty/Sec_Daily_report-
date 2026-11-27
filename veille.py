@@ -3815,7 +3815,12 @@ def silent_sources(conn: sqlite3.Connection | None, today: datetime,
     exclues = exclure or set()
     muettes = []
     for source, dernier in rows:
-        if not source or not dernier or source not in connues or source in exclues:
+        if not source or source not in connues or source in exclues:
+            continue
+        # Ce que le flux vient de publier prime sur ce que la base contenait : au premier run
+        # apres un changement de mesure, la base parle encore de l'ancienne methode.
+        dernier = SOURCE_FRAICHEUR.get(str(source)) or dernier
+        if not dernier:
             continue
         try:
             age = (today.date() - datetime.fromisoformat(str(dernier)[:10]).date()).days

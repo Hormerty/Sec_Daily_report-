@@ -3909,10 +3909,16 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         f"<b>📊 Dashboard</b><br>{c['total']} item(s) · {WINDOW_HOURS} h window · "
         f"{c['active_sources']}/{c['total_sources']} sources active · {c['cves']} distinct CVE(s)<br>"
         f"🔴 Critical: {c['critical']} · 🟠 Important: {c['important']}<br>"
-        f"🔥 CVE exploited by ransomware: {c['cves_ransomware']} · "
-        f"🏴‍☠️ Cyberattacks recorded (Ransomware.live): {c['attacks']} · "
-        f"⚡ Items reporting a campaign: {c['campaigns']} · "
-        f"🌍 IBM countries flagged: {c['countries']}/{len(COUNTRIES)}</div>",
+        # Chaque mesure reste d'un bloc, et le séparateur est insécable : sans cela, la
+        # dernière ligne du tableau commençait par un « · » orphelin sur écran étroit.
+        f'<span style="white-space:nowrap">🔥 CVE exploited by ransomware: '
+        f"{c['cves_ransomware']}</span>&nbsp;· "
+        f'<span style="white-space:nowrap">🏴‍☠️ Cyberattacks recorded (Ransomware.live): '
+        f"{c['attacks']}</span>&nbsp;· "
+        f'<span style="white-space:nowrap">⚡ Items reporting a campaign: '
+        f"{c['campaigns']}</span>&nbsp;· "
+        f'<span style="white-space:nowrap">🌍 IBM countries flagged: '
+        f"{c['countries']}/{len(COUNTRIES)}</span></div>",
     ]
     if c["ttp_top"] or c["actor_top"]:
         details = []

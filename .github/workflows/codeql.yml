@@ -1,0 +1,44 @@
+name: CodeQL
+
+# Analyse statique du moteur, à chaque poussée sur main, sur chaque PR, et une fois par semaine.
+#
+# Distinct de « Vérifier » : celui-ci exécute la suite de tests, celui-là lit le code sans
+# l'exécuter. Les deux sont nécessaires : un test prouve ce qu'on a pensé à tester.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "27 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          queries: security-and-quality
+
+      - name: Dépendances
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:python"

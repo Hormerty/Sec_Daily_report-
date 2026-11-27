@@ -171,6 +171,9 @@ SOURCE_RESULTS: dict[str, tuple[bool, str | None, int]] = {}
 #: notre propre filtrage.
 SOURCE_FRAICHEUR: dict[str, str] = {}
 
+#: Titres écartés faute d'écriture lisible, par source. Comptés, jamais tus.
+LANGUES_ECARTEES: dict[str, int] = {}
+
 
 def _noter_fraicheur(nom: str, entrees) -> None:
     """Retient la date du plus recent article du flux, sans le moindre filtrage."""
@@ -1007,7 +1010,8 @@ RE_FILTER_ROOTS = re.compile(
     r"breach|leak|fuite|violation de donn|vol de donn|attack|attaqu|intrusion|compromis|"
     r"compromised|s[ée]cur|correctif|espionn|spying|usurpation|arnaque|scam|fraud|spoof|"
     r"credential|identifiant|mot de passe|password|authenti|chiffrement|encrypt|firewall|"
-    r"pare-feu|dark ?web|darknet|sabotage|deepfake|rgpd|gdpr|pentest|bug bounty",
+    r"pare-feu|dark ?web|darknet|sabotage|deepfake|rgpd|gdpr|pentest|bug bounty|"
+    r"prompt injection|jailbreak|model extraction|guardrail",
     re.IGNORECASE,
 )
 # Termes courts : correspondance sur mots entiers pour éviter les faux positifs
@@ -1047,6 +1051,62 @@ RE_COMMERCIAL = re.compile(
     r"price\s+drop|buy\s+now|free\s+shipping|robot\s+vacuum|aspirateur|"
     r"vente\s+flash|soldes)\b",
     re.IGNORECASE)
+
+
+_ECRITURES = (
+    ("el", re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")),
+    ("ja", re.compile(r"[\u3040-\u30ff]")),
+    ("zh", re.compile(r"[\u4e00-\u9fff]")),
+    ("ko", re.compile(r"[\uac00-\ud7af]")),
+    ("ru", re.compile(r"[\u0400-\u04ff]")),
+    ("ar", re.compile(r"[\u0600-\u06ff]")),
+    ("he", re.compile(r"[\u0590-\u05ff]")),
+)
+
+_DIACRITIQUES = (
+    ("pt", re.compile(r"[ãõ]")),
+    ("es", re.compile(r"[ñ¿¡]")),
+    ("de", re.compile(r"[ßäöü]")),
+    ("fr", re.compile(r"[èêàçœ]")),
+    ("it", re.compile(r"[ìòù]")),
+)
+
+#: Mots-outils discriminants. Volontairement peu nombreux et sans terme ambigu avec l'anglais.
+_LANGUE_MOTS = {
+    "fr": frozenset({"les", "des", "une", "aux", "avec", "pour", "dans", "sur", "est",
+                       "le", "la", "et", "du", "victime", "attaque"}),
+    "es": frozenset({"los", "las", "una", "del", "para", "por", "que", "con"}),
+    "pt": frozenset({"uma", "não", "com", "para", "dos", "das", "pelo", "sofre",
+                       "ataque", "cibernético"}),
+    "it": frozenset({"gli", "una", "della", "con", "per", "che", "dei"}),
+    "de": frozenset({"der", "die", "das", "und", "mit", "für", "eine", "nicht"}),
+    "nl": frozenset({"het", "een", "van", "met", "voor", "niet", "dat"}),
+    "sl": frozenset({"tudi", "ter", "pri", "zaradi", "lahko", "na", "za", "je", "napad"}),
+}
+
+
+def detecter_langue(titre: str) -> str | None:
+    """Langue probable d'un titre, ou None s'il est anglais ou indécidable.
+
+    Deux signaux, dans cet ordre : l'écriture (grec, japonais, chinois, coréen, cyrillique,
+    arabe, hébreu) qui ne laisse aucun doute, puis les mots-outils et les diacritiques pour les
+    langues latines. Aucun dictionnaire complet : il s'agit de dire au lecteur qu'un titre est
+    étranger, pas de le traduire.
+    """
+    for code, motif in _ECRITURES:
+        if motif.search(titre):
+            return code
+    minuscule = titre.lower()
+    for code, motif in _DIACRITIQUES:
+        if motif.search(minuscule):
+            return code
+    mots = re.findall(r"[a-zà-ÿ]+", minuscule)
+    if len(mots) < 3:
+        return None
+    scores = {code: sum(1 for mot in mots if mot in locutions)
+              for code, locutions in _LANGUE_MOTS.items()}
+    meilleur = max(scores, key=lambda code: scores[code])
+    return meilleur if scores[meilleur] >= 2 else None
 
 
 def is_relevant(text: str) -> bool:
@@ -1478,7 +1538,7 @@ RSS_SOURCES = [
     {"name": "Zero Day Initiative", "url": "https://www.zerodayinitiative.com/rss/published/", "category": ALERTS},
     {"name": "Exploit-DB", "url": "https://www.exploit-db.com/rss.xml", "category": ALERTS},
     # Dark web / ransomware
-    {"name": SOURCE_RANSOMWARE_LIVE, "url": "https://ransomware.live/cyberattacks.xml", "category": DARKWEB},
+    {"name": SOURCE_RANSOMWARE_LIVE, "url": "https://ransomware.live/cyberattacks.xml", "multilingue": True, "category": DARKWEB},
     # RansomLook (CC BY 4.0) : agrege les blogs de groupes, forums et canaux Telegram publics.
     {"name": "RansomLook", "url": "https://www.ransomlook.io/rss.xml", "category": DARKWEB},
     # Flux thématisés : ils sont collectés avant les flux généralistes des mêmes sites, donc
@@ -1512,11 +1572,8 @@ RSS_SOURCES = [
     {"name": "UnderNews", "url": "https://www.undernews.fr/feed", "category": NEWS},
     {"name": "Le Monde Informatique Sécurité", "url": "https://www.lemondeinformatique.fr/flux/cybersecurite-conformite.xml", "category": NEWS},
     {"name": "IT-Connect", "url": "https://www.it-connect.fr/feed/", "category": NEWS, "filter": True},
-    {"name": "01net", "url": "https://www.01net.com/feed/", "category": NEWS, "filter": True, "max": 5},
-    {"name": "Clubic", "url": "https://www.clubic.com/feed/rss", "category": NEWS, "filter": True, "max": 5},
-    {"name": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "category": NEWS, "filter": True},
-    {"name": "Next", "url": "https://next.ink/feed/", "category": NEWS, "filter": True, "max": 5},
-    {"name": "TechCrunch (Security)", "url": "https://techcrunch.com/tag/cybersecurity/feed/", "category": NEWS, "filter": True, "max": 5},
+            {"name": "Ars Technica (Security)", "url": "https://arstechnica.com/tag/security/feed/", "category": NEWS, "filter": True},
+        {"name": "TechCrunch (Security)", "url": "https://techcrunch.com/tag/cybersecurity/feed/", "category": NEWS, "filter": True, "max": 5},
     {"name": "Graham Cluley", "url": "https://www.grahamcluley.com/feed/", "category": NEWS},
     {"name": "Security.nl", "url": "https://www.security.nl/rss/headlines.xml", "category": NEWS, "country": "NL"},
     {"name": "The Register", "url": "https://api.theregister.com/api/v1/article?orderBy=published&site_id=2&remapper=rss&content=node", "category": NEWS},
@@ -1568,11 +1625,8 @@ RSS_SOURCES = [
     {"name": "PortSwigger Research", "url": "https://portswigger.net/research/rss", "category": INTEL},
     {"name": "Hackmageddon", "url": "https://www.hackmageddon.com/feed/", "category": INTEL},
     # Blogs & OSINT
-    {"name": "Korben", "url": "https://korben.info/feed", "category": BLOGS, "filter": True},
-    {"name": "Zataz", "url": "https://www.zataz.com/feed/", "category": BLOGS},
-    {"name": "HackerSploit", "url": "https://hackersploit.org/feed/", "category": BLOGS},
-    {"name": "NetworkChuck", "url": "https://networkchuck.com/feed/", "category": BLOGS},
-    {"name": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "category": BLOGS},
+        {"name": "Zataz", "url": "https://www.zataz.com/feed/", "category": BLOGS},
+            {"name": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "category": BLOGS},
     {"name": "Risky Business", "url": "https://risky.biz/feeds/risky-business/", "category": BLOGS},
     {"name": "Troy Hunt", "url": "https://www.troyhunt.com/rss/", "category": BLOGS},
     {"name": "Schneier on Security", "url": "https://www.schneier.com/feed/atom/", "category": BLOGS},
@@ -1667,8 +1721,8 @@ SOURCE_WEIGHTS = {
     "The Record": 2, "SecurityWeek": 1, "Dark Reading": 2, "Help Net Security": 1,
     "CyberScoop": 2, "Security Affairs": 1, "Wired Security": 1,
     "CSO Online": 1, "UnderNews": 1,
-    "Le Monde Informatique Sécurité": 1, "IT-Connect": 1, "01net": 0, "Clubic": 0,
-    "Ars Technica (Security)": 1, "Next": 1, "TechCrunch (Security)": 1,
+    "Le Monde Informatique Sécurité": 1, "IT-Connect": 1, 
+    "Ars Technica (Security)": 1, "TechCrunch (Security)": 1,
     "Graham Cluley": 2, "Security.nl": 1, "The Register": 2,
     "Infosecurity Magazine": 1,
     "Google Project Zero": 3, "Unit 42 (Palo Alto)": 3, "Securelist (Kaspersky)": 2,
@@ -1686,7 +1740,7 @@ SOURCE_WEIGHTS = {
     "NVISO Labs": 2, "Horizon3.ai": 2, "PortSwigger Research": 1, "Hackmageddon": 1,
     "Elastic Security Labs": 2, "Sekoia": 2, "Recorded Future": 2,
     "Red Canary": 2, "GreyNoise": 2, "Citizen Lab": 2,
-    "Korben": 0, "Zataz": 1, "HackerSploit": 0, "NetworkChuck": 0,
+    "Zataz": 1, 
     "Bellingcat": 1, "Risky Business": 2, "Troy Hunt": 2,
     "Schneier on Security": 1, "DoublePulsar": 2, "Pen Test Partners": 1,
     "Mastodon (infosec)": 1,
@@ -2498,6 +2552,13 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
         langue = source.get("translate")
         if langue:
             title = translate_title(title, "de" if langue is True else str(langue))
+        # Une écriture que nous ne pouvons ni traduire ni interpréter n'apporte rien au
+        # lecteur : elle est écartée des flux multilingues, et comptée.
+        if source.get("multilingue"):
+            langue = detecter_langue(title)
+            if langue in ("ja", "zh", "ko", "ru", "el", "ar", "he"):
+                LANGUES_ECARTEES[source["name"]] = LANGUES_ECARTEES.get(source["name"], 0) + 1
+                continue
         text = _entry_text(entry)
         # Le titre decide de l'admission ; le resume informe le score. Juger sur le resume
         # laissait passer un article sur macOS parce qu'il contenait le mot « securite ».
@@ -3882,6 +3943,16 @@ def inject_section_articles(groups: dict[str, list[Article]],
     return displayed
 
 
+def _etiquette_langue(titre: str) -> str:
+    """« [fr] » après un titre étranger : le lecteur sait pourquoi il ne le comprend pas."""
+    langue = detecter_langue(titre)
+    # Ni l'anglais ni le francais ne sont etiquetes : le programme est ecrit dans ces deux
+    # langues, et un « [fr] » sur une source francaise serait du bruit pour son lecteur.
+    if not langue or langue in ("en", "fr"):
+        return ""
+    return f' <small style="color:#888">[{langue}]</small>'
+
+
 def _lien_html(url: str, texte: str) -> str:
     """Un lien seulement s'il mène quelque part de sûr.
 
@@ -4008,7 +4079,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
                            if resume and a.score >= CRITICAL_THRESHOLD else "")
             parts.append(
                 f'<li style="margin-bottom:6px"><b>{e(_badges(a))}</b> '
-                f'{_lien_html(a.link, a.title)}{metr} '
+                f'{_lien_html(a.link, a.title)}{_etiquette_langue(a.title)}{metr} '
                 f'<small>({e(a.source)})</small>{qual_html}{detail_html}{cve_html}</li>'
             )
         parts.append("</ul>")
@@ -4072,7 +4143,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             parts.append(
                 f'<li style="margin-bottom:10px">{tag}'
                 f'{"🆕 " if a.link in (fresh or ()) else ""}'
-                f'{_lien_html(a.link, a.title)}{metr}{detail}{qual_html}{also}</li>'
+                f'{_lien_html(a.link, a.title)}{_etiquette_langue(a.title)}{metr}{detail}{qual_html}{also}</li>'
             )
         parts.append("</ul>")
 
@@ -4124,6 +4195,12 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
     else:
         parts.append(
             '<p style="font-size:12px;color:#777">No item mentioned an IBM country in this window.</p>'
+        )
+    if LANGUES_ECARTEES:
+        detail = ", ".join(f"{nom} ({n})" for nom, n in LANGUES_ECARTEES.items())
+        parts.append(
+            '<p style="font-size:11px;color:#888">🌐 Titles in a script we cannot read were '
+            f"dropped: {e(detail)}</p>"
         )
     if SHOW_COUNTRY_LINKS:
         # Vingt-huit lignes identiques chaque matin ne disaient rien de la journée : la liste

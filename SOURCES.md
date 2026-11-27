@@ -164,6 +164,25 @@ behind a bot check, which a self-hosted scraper cannot pass either. The gap is t
 a heavier runtime, with the same fragility — a scraper that returns nothing looks like a quiet
 day, where a dead feed appears in the error line.
 
+## Removed after measurement, 27 November 2026
+
+Each line was checked against seven days of its own feed, counting the items the relevance filter
+would still keep. A source that publishes gadgets and discounts has no place in a watch, however
+serious it is about technology.
+
+| Source | Items / 7 days | Kept | Why it left |
+|---|---|---|---|
+| 01net | 30 | **0** | deals and gadgets: `-45 %`, tablets, scooters |
+| Korben | 31 | 2 (6 %) | general technology blog |
+| Clubic | 50 | 6 (12 %) | deals, robot vacuums, VPN offers |
+| Next | 50 | 8 (16 %) | general technology news |
+| HackerSploit | — | — | last published February 2023 |
+| NetworkChuck | 0 | — | the feed returns nothing |
+
+These produced the noise a reader notices first: *« Oui, on peut faire tourner macOS sur une base
+Linux »*, *« Cet aspirateur robot est à -71 % »*. For comparison, the sources kept at the same
+measurement: SecurityWeek and The Record 100 %, The Hacker News 85 %, Dark Reading 83 %.
+
 ## External aggregators evaluated and refused
 
 Two aggregators were examined in November 2026 because they promised to spare us work. Neither

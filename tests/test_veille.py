@@ -829,3 +829,33 @@ def test_les_blogs_ont_un_delai_de_silence_plus_large(tmp_path):
 
     assert muettes.get("CERT-FR") == 30        # un avis muet depuis 30 jours se signale
     assert "Bellingcat" not in muettes         # un blog, non : son delai est de 45 jours
+
+def test_la_fraicheur_vient_du_flux_pas_de_nos_envois():
+    """Un flux qui publie mais dont aucun article n'est retenu ne doit pas passer pour muet."""
+    entrees = [
+        {"published_parsed": (2026, 11, 25, 8, 0, 0, 0, 0, 0)},
+        {"published_parsed": (2026, 11, 26, 9, 30, 0, 0, 0, 0)},
+        {"title": "sans date"},
+    ]
+    veille.SOURCE_FRAICHEUR.clear()
+
+    veille._noter_fraicheur("Source test", entrees)
+
+    assert veille.SOURCE_FRAICHEUR["Source test"] == "2026-11-26"
+
+
+def test_le_bandeau_silencieux_lit_la_fraicheur_des_flux(tmp_path):
+    """La table `sources` porte la date du dernier article publie : c'est elle qui compte."""
+    import sqlite3
+    from datetime import datetime
+
+    base = sqlite3.connect(tmp_path / "articles.db")
+    base.execute("CREATE TABLE sources (nom TEXT PRIMARY KEY, dernier_article TEXT)")
+    base.execute("CREATE TABLE articles (source TEXT, vu_le TEXT)")
+    base.execute("INSERT INTO sources VALUES (?, ?)", ("CERT-FR", "2026-11-26"))
+    base.execute("INSERT INTO articles VALUES (?, ?)", ("CERT-FR", "2026-09-01"))
+    base.commit()
+
+    muettes = veille.silent_sources(base, datetime(2026, 11, 27))
+
+    assert "CERT-FR" not in dict(muettes)

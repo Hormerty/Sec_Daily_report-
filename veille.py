@@ -165,6 +165,27 @@ KEV_VULNS: list[dict] = []
 # Résultat de chaque source au run courant : (succès, erreur, nombre d'articles). Rempli par
 # collect_source() dans les fils, puis écrit en base une fois la collecte terminée.
 SOURCE_RESULTS: dict[str, tuple[bool, str | None, int]] = {}
+
+#: Date du plus recent article *publie* par chaque flux, meme quand ses articles ne sont pas
+#: retenus. C'est ce que mesure le bandeau des sources silencieuses : la sante du flux, pas
+#: notre propre filtrage.
+SOURCE_FRAICHEUR: dict[str, str] = {}
+
+
+def _noter_fraicheur(nom: str, entrees) -> None:
+    """Retient la date du plus recent article du flux, sans le moindre filtrage."""
+    recentes = []
+    for entree in entrees:
+        for cle in ("published_parsed", "updated_parsed"):
+            valeur = entree.get(cle)
+            if valeur:
+                try:
+                    recentes.append(datetime(*valeur[:6], tzinfo=timezone.utc))
+                except (TypeError, ValueError):
+                    pass
+                break
+    if recentes:
+        SOURCE_FRAICHEUR[nom] = max(recentes).date().isoformat()
 # Sources qui répondent depuis une autre adresse que celle configurée : nom -> URL finale.
 SOURCE_MOVED: dict[str, str] = {}
 
@@ -1823,7 +1844,7 @@ def record_source_results(conn: sqlite3.Connection | None,
                     " type_erreur=excluded.type_erreur, derniere_erreur=excluded.derniere_erreur,"
                     " total_articles=excluded.total_articles",
                     (nom, url, categorie, poids, maintenant,
-                     maintenant if nb else dernier_article,
+                     SOURCE_FRAICHEUR.get(nom) or (maintenant if nb else dernier_article),
                      "deplace" if deplace else None,
                      f"moved to {deplace}" if deplace else None, total + nb))
             else:
@@ -2383,6 +2404,8 @@ def collect_rss(session: requests.Session, source: dict, since: datetime,
     except Exception as exc:  # noqa: BLE001 - un flux exotique ne doit pas tuer la source
         log.warning("%s: unreadable feed (%s)", source["name"], exc)
         return [], f"{source['name']}: unreadable feed ({type(exc).__name__})"
+
+    _noter_fraicheur(source["name"], feed.entries)
 
     if not feed.entries:
         # Aucune entrée : soit une page anti-robot servie au client qui se dit navigateur, soit
@@ -3753,10 +3776,23 @@ def silent_sources(conn: sqlite3.Connection | None, today: datetime,
     """
     if conn is None:
         return []
+    # La date du dernier article *publie* par le flux quand elle est connue ; la table des
+    # articles sert de repli, pour les sources jamais revues depuis la migration.
+    rows: list[tuple[str, str]] = []
     try:
-        rows = list(conn.execute("SELECT source, MAX(vu_le) FROM articles GROUP BY source"))
+        rows = list(conn.execute(
+            "SELECT nom, dernier_article FROM sources WHERE dernier_article IS NOT NULL"))
     except sqlite3.Error:
-        return []
+        rows = []
+    try:
+        connues_en_base = {str(nom) for nom, _ in rows}
+        for source, dernier in conn.execute(
+                "SELECT source, MAX(vu_le) FROM articles GROUP BY source"):
+            if str(source) not in connues_en_base:
+                rows.append((str(source), str(dernier)))
+    except sqlite3.Error:
+        if not rows:
+            return []
     # Une source retirée du code garde ses articles en base : sans ce filtre, elle resterait
     # signalée « muette » des mois après sa suppression.
     connues = {s["name"] for s in RSS_SOURCES}
@@ -3876,7 +3912,7 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
     if silent:
         parts.append(
             '<p style="background:#fff3cd;padding:8px;border-radius:4px">🔇 Silent sources '
-            '(no article for 14+ days, feed still answering): '
+            '(feed still answering, nothing new published): '
             + e(", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
             + "</p>"
         )
@@ -4095,7 +4131,7 @@ def render_text(groups: dict[str, list[Article]], errors: list[str],
     if errors:
         lines.append("Sources in error: " + " ; ".join(errors))
     if silent:
-        lines.append("Silent sources (no article for 14+ days, feed still answering): "
+        lines.append("Silent sources (feed still answering, nothing new published): "
                      + ", ".join(f"{nom} ({age} d)" for nom, age in silent[:10]))
     if source_states:
         morceaux = []

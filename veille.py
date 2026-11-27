@@ -193,6 +193,8 @@ SOURCE_MOVED: dict[str, str] = {}
 EPSS_URL = "https://api.first.org/data/v1/epss"
 EPSS_CSV_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
 NVD_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+# La liste des sources, tenue à jour dans le dépôt : le rapport y renvoie au lieu de la recopier.
+SOURCES_URL = "https://github.com/Hormerty/Sec_Daily_report-/blob/main/SOURCES.md"
 NVD_API_KEY = os.environ.get("NVD_API_KEY", "").strip()
 MAX_CVSS = _env_int("MAX_CVSS", 30 if NVD_API_KEY else 10, 1)  # NVD : 5 req/30 s sans clé
 
@@ -1039,7 +1041,17 @@ def _short_text(entry) -> str:
     return html.unescape(re.sub(r"<[^>]+>", " ", raw))[:3_000]
 
 
+RE_COMMERCIAL = re.compile(
+    r"\b(?:black\s?friday|cyber\s?monday|prime\s?day|promo(?:tion)?\s?code|coupon|"
+    r"best\s+deal|deal\s+of\s+the\s+day|\d{1,2}\s?%\s?(?:off|de\s+réduction)|"
+    r"price\s+drop|buy\s+now|free\s+shipping|robot\s+vacuum|aspirateur|"
+    r"vente\s+flash|soldes)\b",
+    re.IGNORECASE)
+
+
 def is_relevant(text: str) -> bool:
+    if RE_COMMERCIAL.search(text):
+        return False   # une promotion n'est pas une information de veille
     return bool(RE_FILTER_ROOTS.search(text) or RE_FILTER_WORDS.search(text))
 
 
@@ -3896,12 +3908,6 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         f"🏴‍☠️ Cyberattacks recorded (Ransomware.live): {c['attacks']} · "
         f"⚡ Items reporting a campaign: {c['campaigns']} · "
         f"🌍 IBM countries flagged: {c['countries']}/{len(COUNTRIES)}</div>",
-        '<p style="font-size:12px;color:#555">Legend: 🔴 critical · 🟠 important · '
-        "🇪🇺🇧🇪🇩🇪… country of the IBM footprint · "
-        "🎯 products and stack · 💥 exploitation technique · 🕵️ APT/ransomware actor · "
-        "🔥 CVE used by ransomware · ⚡ active campaign · "
-        "TTP = MITRE ATT&amp;CK technique · "
-        "EPSS = exploitation probability (FIRST) · CVSS = technical severity (NVD)</p>",
     ]
     if c["ttp_top"] or c["actor_top"]:
         details = []
@@ -3961,6 +3967,9 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
     # Les trois sections ci-dessous ne doivent citer que des articles reellement affiches plus bas :
     # elles renvoient vers leur entree complete, qui n'existerait pas si le plafond l'avait coupee.
     top = top_priorities(displayed)
+    # Les entrées déjà citées en tête ne sont plus détaillées dans leur rubrique : le lecteur
+    # les a lues trois lignes plus haut, et la répétition coûtait une dizaine de lignes.
+    top_links = {a.link for a in top}
     if top:
         parts.append("<ul>")
         for a in top:
@@ -3969,10 +3978,15 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
             qual = _qualifiers(a)
             qual_html = f'<br><small>{e(qual)}</small>' if qual else ""
             cve_html = f'<br><small>{_cve_links_html(a.cves[0])}</small>' if a.cves else ""
+            # La description d'une urgence vit ici, une seule fois : sa rubrique se contente
+            # désormais d'un renvoi « listed above ».
+            resume = a.detail if a.detail and a.detail.strip() != a.title.strip() else ""
+            detail_html = (f'<br><small>{e(resume)}</small>'
+                           if resume and a.score >= CRITICAL_THRESHOLD else "")
             parts.append(
                 f'<li style="margin-bottom:6px"><b>{e(_badges(a))}</b> '
                 f'{_lien_html(a.link, a.title)}{metr} '
-                f'<small>({e(a.source)})</small>{qual_html}{cve_html}</li>'
+                f'<small>({e(a.source)})</small>{qual_html}{detail_html}{cve_html}</li>'
             )
         parts.append("</ul>")
     else:
@@ -4012,11 +4026,21 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         else:
             parts.append(f'<h3 style="color:#0275d8">{e(label)}</h3><ul>')
         for a in articles:
+            if a.link in top_links:
+                parts.append(
+                    f'<li style="margin-bottom:4px;color:#888">↑ '
+                    f'{_lien_html(a.link, a.title)} <small>(listed above)</small></li>')
+                continue
             badges = _badges(a)
             tag = f"<b>{e(badges)}</b> " if badges else ""
             m = _metrics(a)
             metr = f' <small style="color:#666">[{e(m)}]</small>' if m else ""
-            detail = f"<br><small>{e(a.detail)}</small>" if a.detail else ""
+            # Le détail ne s'imprime que s'il apprend quelque chose — il répète souvent le titre
+            # mot pour mot — et seulement pour une urgence : les entrées 🟠 gardent leur titre
+            # seul, sinon dix paragraphes noient les cinq qui comptent.
+            resume = a.detail if a.detail and a.detail.strip() != a.title.strip() else ""
+            detail = (f"<br><small>{e(resume)}</small>"
+                      if resume and a.score >= CRITICAL_THRESHOLD else "")
             qual = _qualifiers(a)
             qual_html = f"<br><small>{e(qual)}</small>" if qual else ""
             also = ("<br><small>Also covered by: " + ", ".join(
@@ -4059,34 +4083,34 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
         parts.append(
             '<p style="font-size:11px;color:#888">'
             f"{total_country_items} item(s) across {len(blocks)} of {len(COUNTRIES)} countries where IBM "
-            "operates an entity or an office. Titles only: the full entry is listed in the sections above.</p>"
+            "operates an entity or an office. The full entry is listed in the sections above.</p>"
         )
-        for code, items in blocks:
-            info = COUNTRIES[code]
-            parts.append(
-                f'<h3 style="color:#0275d8">{info["flag"]} {e(info["name"])} ({len(items)})</h3><ul>'
-            )
-            for a in items:
+        # Les pays et leurs compteurs restent visibles — c'est ce qui donne la carte du jour —
+        # mais les titres ne sont plus recopiés : ils viennent tous des rubriques ci-dessus.
+        resume = " · ".join(
+            f"{COUNTRIES[code]['flag']} {e(COUNTRIES[code]['name'])} ({len(items)})"
+            for code, items in blocks)
+        parts.append(f'<p style="font-size:13px">{resume}</p>')
+        exemples = [a for _, items in blocks for a in items][:3]
+        if exemples:
+            parts.append('<ul style="font-size:12px;color:#555">')
+            for a in exemples:
                 parts.append(
-                    f'<li style="margin-bottom:4px">{e(_badges(a))} '
-                    f'{_lien_html(a.link, a.title)} <small>({e(a.source)})</small></li>'
-                )
+                    f"<li>{_lien_html(a.link, a.title)} <small>({e(a.source)})</small></li>")
             parts.append("</ul>")
     else:
         parts.append(
             '<p style="font-size:12px;color:#777">No item mentioned an IBM country in this window.</p>'
         )
     if SHOW_COUNTRY_LINKS:
+        # Vingt-huit lignes identiques chaque matin ne disaient rien de la journée : la liste
+        # complète vit dans SOURCES.md, où elle est tenue à jour.
         parts.append(
             '<p style="font-size:12px;color:#555;margin:18px 0 4px">'
-            "<b>🏛️ National CERT &amp; trusted sources</b></p>"
-            '<ul style="font-size:12px;line-height:1.6">'
+            "🏛️ National CERT &amp; trusted sources: "
+            f'<a href="{SOURCES_URL}" target="_blank" rel="noopener noreferrer">SOURCES.md</a>'
+            "</p>"
         )
-        for code, info in COUNTRIES.items():
-            parts.append(
-                f'<li>{info["flag"]} {e(info["name"])} — {_country_links_html(info)}</li>'
-            )
-        parts.append("</ul>")
 
     if vendors:
         items = " · ".join(e(_vendor_line(f)) for f in vendors)
@@ -4103,7 +4127,15 @@ def render_html(groups: dict[str, list[Article]], errors: list[str],
     parts.append(
         '<div style="margin-top:26px;padding:12px;background:#f8f9fa;'
         'border-top:3px solid #d9534f;text-align:center">'
-        '<p style="margin:0;font-size:15px;color:#333">Generated automatically by Nours_sec_bot</p></div></body></html>'
+        '<p style="margin:0;font-size:15px;color:#333">Generated automatically by Nours_sec_bot</p>'
+        # La légende et la liste des sources vivaient en tête, identiques chaque matin, sur une
+        # trentaine de lignes. Elles tiennent désormais en un lien, au pied.
+        '<p style="margin:6px 0 0;font-size:11px;color:#888">'
+        "🔴 critical · 🟠 important · 🎯 stack or product · 💥 exploitation technique · "
+        "TTP = MITRE ATT&amp;CK · EPSS = exploitation probability · CVSS = severity. "
+        f'Every source, and why some were refused: '
+        f'<a href="{SOURCES_URL}" target="_blank" rel="noopener noreferrer">SOURCES.md</a>'
+        "</p></div></body></html>"
         )
     return "\n".join(parts)
 

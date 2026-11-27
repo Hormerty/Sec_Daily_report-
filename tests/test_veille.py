@@ -102,11 +102,15 @@ def test_country_sections_group_articles():
 
 
 def test_html_contains_european_section():
-    html = veille.render_html({"X": [_article(title="German hospital hit by ransomware")]}, [])
+    # Un article rattaché à un pays de l'empreinte : la section affiche les pays et leurs
+    # compteurs, mais ne recopie plus les titres ni l'index complet des liens nationaux.
+    article = _article(title="German hospital hit by ransomware", countries=("DE",))
+    html = veille.render_html({"X": [article]}, [])
+
     assert "European focus (IBM footprint)" in html
     assert "🇩🇪" in html
-    # l'index des liens nationaux est présent par défaut
-    assert "ccb.belgium.be" in html
+    assert "SOURCES.md" in html
+    assert "ccb.belgium.be" not in html
 
 
 def test_html_escapes_country_names():
@@ -898,3 +902,47 @@ def test_un_lien_http_reste_cliquable():
     html = veille.render_html({veille.ALERTS: [article]}, errors=[])
 
     assert 'href="https://cert.ssi.gouv.fr/avis/1"' in html
+
+def _article_detaille(titre, detail, score):
+    article = _article(title=titre)
+    article.detail = detail
+    article.score = score
+    article.severity = veille.severity_badge(score)
+    return article
+
+
+def test_un_detail_identique_au_titre_n_est_pas_imprime():
+    """Red Hat recopiait le titre dans le detail : deux fois la meme phrase."""
+    article = _article_detaille("Phrase unique", "Phrase unique", 16)
+    html = veille.render_html({"X": [article]}, [])
+
+    # Deux mentions : le lien en tete, et le renvoi dans sa rubrique. Jamais trois.
+    assert html.count("Phrase unique") == 2
+
+
+def test_le_detail_est_reserve_aux_critiques():
+    """Dix paragraphes noient les cinq qui comptent : les 🟠 gardent leur titre seul."""
+    important = _article_detaille("Avis important", "Description longue", 7)
+    critique = _article_detaille("Avis critique", "Description longue", 16)
+
+    html_important = veille.render_html({"X": [important]}, [])
+    html_critique = veille.render_html({"X": [critique]}, [])
+
+    assert "Description longue" not in html_important
+    assert "Description longue" in html_critique
+
+
+def test_une_priorite_du_jour_n_est_pas_reditee_dans_sa_rubrique():
+    """Le lecteur l'a lue trois lignes plus haut : la recopier coutait une dizaine de lignes."""
+    article = _article_detaille("Panneau casse", "Description", 16)
+    html = veille.render_html({"X": [article]}, [])
+
+    assert "listed above" in html
+    # Une seule occurrence du titre en lien : celle de l'entete, pas une seconde complete.
+    assert html.count("Panneau casse") <= 2
+
+
+def test_les_promotions_ne_sont_pas_de_la_veille():
+    assert not veille.is_relevant("Black Friday VPN : NordVPN a -78 %")
+    assert not veille.is_relevant("Cet aspirateur robot est a -71 %")
+    assert veille.is_relevant("Critical vulnerability in Apache HTTP Server")

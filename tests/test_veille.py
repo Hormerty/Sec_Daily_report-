@@ -786,3 +786,46 @@ def test_poster_alertes_sans_webhook_ne_fait_rien(monkeypatch):
     monkeypatch.delenv("WEBHOOKS", raising=False)
 
     assert veille.poster_alertes("bonjour") == 0
+
+def test_fetch_feed_demande_une_reponse_non_compressee(monkeypatch):
+    """Hackmageddon coupe la connexion quand on accepte gzip : le troisieme essai y remedie."""
+    appels = []
+
+    class Session:
+        def get(self, url, timeout=None, headers=None):
+            appels.append(dict(headers or {}))
+            if len(appels) < 3:
+                raise veille.requests.ConnectionError("Remote end closed connection")
+            return Reponse()
+
+    class Reponse:
+        content = b"<rss></rss>"
+
+        def raise_for_status(self):
+            return None
+
+    reponse = veille.fetch_feed(Session(), "https://exemple.test/feed/")
+
+    assert reponse.content == b"<rss></rss>"
+    assert len(appels) == 3
+    assert appels[-1].get("Accept-Encoding") == "identity"
+
+
+def test_les_blogs_ont_un_delai_de_silence_plus_large(tmp_path):
+    """Un blog peut se taire deux mois sans etre en panne ; un avis, non."""
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    base = sqlite3.connect(tmp_path / "articles.db")
+    base.execute("CREATE TABLE articles (source TEXT, vu_le TEXT)")
+    aujourd_hui = datetime(2026, 11, 27)
+    base.execute("INSERT INTO articles VALUES (?, ?)",
+                 ("Bellingcat", (aujourd_hui - timedelta(days=30)).isoformat()))
+    base.execute("INSERT INTO articles VALUES (?, ?)",
+                 ("CERT-FR", (aujourd_hui - timedelta(days=30)).isoformat()))
+    base.commit()
+
+    muettes = dict(veille.silent_sources(base, aujourd_hui))
+
+    assert muettes.get("CERT-FR") == 30        # un avis muet depuis 30 jours se signale
+    assert "Bellingcat" not in muettes         # un blog, non : son delai est de 45 jours

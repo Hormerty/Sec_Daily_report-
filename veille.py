@@ -798,6 +798,8 @@ IMPORTANT_THRESHOLD = 5    # 🟠 ; en dessous : aucune pastille (une pastille v
 # Couverture croisée : trois sources indépendantes qui reparlent de la même CVE le même jour
 # valent mieux qu'un âge. C'est l'indice d'une exploitation en masse, pas d'un vestige.
 CORROBORATION_MIN = _env_int("CORROBORATION_MIN", 3, 2)
+# Un blog peut se taire deux mois sans etre en panne ; un avis, non.
+SEUIL_SILENCE_BLOG = _env_int("SEUIL_SILENCE_BLOG", 45, 7)
 CORROBORATION_BONUS = _env_int("CORROBORATION_BONUS", 3, 0)
 
 # Pays de proximite immediate : Benelux et France, la ou se trouve le siege. Une mention de ces
@@ -2224,13 +2226,19 @@ def fetch_feed(session: requests.Session, url: str, reader_only: bool = False):
         response.raise_for_status()
         return response
     except requests.RequestException as exc:
-        try:
-            response = session.get(url, timeout=TIMEOUT,
-                                   headers={"Accept": _FEED_ACCEPT, "User-Agent": FEED_READER_UA})
-            response.raise_for_status()
-            return response
-        except requests.RequestException:
-            raise exc
+        # Deux replis successifs : un agent de lecteur, puis aucune compression.
+        # Hackmageddon coupe la connexion quand on accepte gzip, et repond sans broncher quand
+        # on demande identity : le flux compresse est casse chez son hebergeur, pas chez nous.
+        for entetes in ({"Accept": _FEED_ACCEPT, "User-Agent": FEED_READER_UA},
+                        {"Accept": _FEED_ACCEPT, "User-Agent": FEED_READER_UA,
+                         "Accept-Encoding": "identity"}):
+            try:
+                response = session.get(url, timeout=TIMEOUT, headers=entetes)
+                response.raise_for_status()
+                return response
+            except requests.RequestException:
+                continue
+        raise exc
 
 
 FEED_GUESS_PATHS = ("/feed/", "/feed", "/rss", "/rss.xml", "/feed.xml", "/atom.xml",
@@ -3752,6 +3760,10 @@ def silent_sources(conn: sqlite3.Connection | None, today: datetime,
     # Une source retirée du code garde ses articles en base : sans ce filtre, elle resterait
     # signalée « muette » des mois après sa suppression.
     connues = {s["name"] for s in RSS_SOURCES}
+    # Un blog ne publie pas au rythme d'un PSIRT. Signaler Bellingcat au bout de quatorze jours
+    # apprend a ignorer le bandeau : les blogs ont donc leur propre delai, plus large.
+    seuils = {s["name"]: (SEUIL_SILENCE_BLOG if s.get("category") == BLOGS else days)
+              for s in RSS_SOURCES}
     exclues = exclure or set()
     muettes = []
     for source, dernier in rows:
@@ -3761,7 +3773,7 @@ def silent_sources(conn: sqlite3.Connection | None, today: datetime,
             age = (today.date() - datetime.fromisoformat(str(dernier)[:10]).date()).days
         except (TypeError, ValueError):
             continue
-        if age >= days:
+        if age >= seuils.get(str(source), days):
             muettes.append((str(source), age))
     return sorted(muettes, key=lambda kv: -kv[1])
 

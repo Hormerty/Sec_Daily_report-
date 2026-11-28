@@ -202,7 +202,7 @@ from its output, not from memory.
 
 ## External aggregators evaluated and refused
 
-**[vulneraibility.com](https://www.vulneraibility.com/blog/rss.xml): a misspelled domain, and a
+**[vulneraibility.com](https://www.vulneraibility.com/blog/rss.xml) <!-- statut: refuse -->: a misspelled domain, and a
 trademark problem before it is a data problem.** The name is not a word: it is `vulnerability` with
 an extra `i`, registered on 2025-11-08, while `vulnerability.com` has existed since 2000-01-19. The
 feed answers correctly and looks like a security blog, but of its thirty entries none carries a CVE,
@@ -214,7 +214,7 @@ not proposed again.
 Two aggregators were examined in November 2026 because they promised to spare us work. Neither
 was integrated, and the reasons are worth keeping.
 
-**[EUVD](https://euvd.enisa.europa.eu): ENISA's European Vulnerability Database** is
+**[EUVD](https://euvd.enisa.europa.eu) <!-- statut: integre -->: ENISA's European Vulnerability Database** is
 **integrated**, and this page said the opposite until 28 November 2026. The error was found by
 re-reading the code: `collect_euvd` runs in the daily report and in the alert pass, against
 `/api/kev/dump`, the European equivalent of the CISA catalogue: 1 783 entries carrying `cveId`,
@@ -223,7 +223,7 @@ re-reading the code: `collect_euvd` runs in the daily report and in the alert pa
 collector therefore reads the KEV dump, keeps only recent additions, and drops any CVE the
 American KEV already lists, so the same flaw is not printed twice.
 
-**[cve.now](https://github.com/sazabi/cve.now): a hosted feed** merging the CVE List, GHSA,
+**[cve.now](https://github.com/sazabi/cve.now) <!-- statut: refuse -->: a hosted feed** merging the CVE List, GHSA,
 OSV, NVD, EUVD, CISA KEV, EPSS and Exploit-DB into one entry per vulnerability, with RSS, a
 JSON API and an MCP server, no account required. Its filters work (`?filter=critical`,
 `?filter=kev`), each returning 200 entries. It was refused for one reason above all: its titles
@@ -234,7 +234,7 @@ also repackages sources already queried first-hand, mixes breach news with advis
 re-publishes an entry whenever a proof of concept appears (the guid carries a timestamp, so the
 same CVE returns).
 
-**[OSV](https://osv.dev): Google's open source vulnerability database** has no feed: its
+**[OSV](https://osv.dev) <!-- statut: refuse -->: Google's open source vulnerability database** has no feed: its
 site announces only a blog RSS, and its data arrives as per-ecosystem archives (PyPI 36 MB,
 npm 212 MB, Go 12 MB). It is an API for exact lookups, and a good one: querying
 `django 4.2.0` returns 96 advisories, version-precise. That is a stack-audit capability,
@@ -244,7 +244,7 @@ third party. Left out, but worth remembering if the stack ever accepts a lockfil
 What both do well is deduplicate per vulnerability and merge severity data. That is precisely
 what the engine already does across its 123 feeds, with the country provenance kept.
 
-**[CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5): the official CVE List.**
+**[CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5) <!-- statut: accepte -->: the official CVE List.**
 3 324 stars, pushed every few minutes, and the registry every other source derives from. It
 offers no daily feed: cves/delta.json covers the window since the mirror last refreshed (404
 bytes on 26 November, one updated CVE), and cves/deltaLog.json holds the rolling log at 28,3 MB
@@ -254,7 +254,7 @@ source-driven: an item enters the report because a publisher wrote it, never bec
 numbered it. Its real use would be a fallback when NVD has not yet analysed a CVE we already
 carry: the CNA description and affected versions are there before NVD's are.
 
-**[trickest/cve](https://github.com/trickest/cve): a public proof-of-concept index.** MIT,
+**[trickest/cve](https://github.com/trickest/cve) <!-- statut: refuse -->: a public proof-of-concept index.** MIT,
 8 255 stars, refreshed daily: one markdown sheet per CVE (CVE-2026-102275.md, 1,4 KB) with
 product, versions, CWE, description and the PoC links, at a path derived from the identifier:
 the same shape as CISA Vulnrichment. Two bulk files sit at the root, github.txt (17,4 MB) and
@@ -278,12 +278,12 @@ rather than a discovery. Its most interesting entry is **GCVE**, CIRCL's decentr
 database: `https://db.gcve.eu/api/vulnerability/GCVE-1-2026-0001` answers with a CVE-5 style
 JSON record. It is a lookup base, like EUVD, not a feed, and the same reasoning applies.
 
-**[alex-ilgayev/secfeed](https://github.com/alex-ilgayev/secfeed)** is a Go aggregator with an
+**[alex-ilgayev/secfeed](https://github.com/alex-ilgayev/secfeed) <!-- statut: refuse -->** is a Go aggregator with an
 AI summariser, last pushed in March 2025. Nothing in it is usable here, but its config.yml holds
 25 feeds, so it was read as a candidate list: 13 are already collected, and of the 12 others,
 whose state was checked on 26 November, eight are gone: Threatpost's last entry dates from August
 2022, Rapid7's blog answers 404, Veracode's feed is empty, Sophos and Digital Shadows no longer
-answer. A namesake, **[SharonBrizinov/secfeed](https://github.com/SharonBrizinov/secfeed)**, is a closer
+answer. A namesake, **[SharonBrizinov/secfeed](https://github.com/SharonBrizinov/secfeed) <!-- statut: refuse -->**, is a closer
 cousin than the Go one: 346 lines of Python, MIT, SQLite state, a poll every two hours and
 notifications to Slack, Telegram, Signal or Discord. Its method is the one refused here: HTML
 scraped by regular expressions: and its sources are CISA and CERT-EU, already collected, plus

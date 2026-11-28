@@ -183,6 +183,23 @@ These produced the noise a reader notices first: *« Oui, on peut faire tourner 
 Linux »*, *« Cet aspirateur robot est à -71 % »*. For comparison, the sources kept at the same
 measurement: SecurityWeek and The Record 100 %, The Hacker News 85 %, Dark Reading 83 %.
 
+### Re-checked on 28 November 2026
+
+	ools/verifier_refus.py replays the measurement on every refused source: it reads the bold
+entries of this page, requests each one, and prints what it answers today. The verdicts below come
+from its output, not from memory.
+
+| Source | State on 28 November | Refusal |
+|---|---|---|
+| vulneraibility.com | 34 entries, last one 16 October | holds, and the site now looks abandoned |
+| cve.now | 170 stars, pushed 11 November, Apache-2.0 | holds: its titles are model-written, so untraceable |
+| OSV | no feed, per-ecosystem archives | holds: a stack-audit API, not a daily source |
+| cvelistV5 | 3 333 stars, pushed today, no licence, 3.4 GB | accepted as reference data, collector not written yet |
+| trickest/cve | 8 260 stars, pushed yesterday, MIT, 894 MB | holds: 70 % of critical CVEs already carry KEV or SSVC |
+| alex-ilgayev/secfeed | 32 stars, last push March 2025 | holds: abandoned, and used only as a candidate list |
+| SharonBrizinov/secfeed | 27 stars, last push January 2025 | holds: same |
+| EUVD | see above | **the page was wrong**: it is integrated |
+
 ## External aggregators evaluated and refused
 
 **[vulneraibility.com](https://www.vulneraibility.com/blog/rss.xml): a misspelled domain, and a
@@ -197,13 +214,14 @@ not proposed again.
 Two aggregators were examined in November 2026 because they promised to spare us work. Neither
 was integrated, and the reasons are worth keeping.
 
-**[EUVD](https://euvd.enisa.europa.eu): ENISA's European Vulnerability Database** is a primary
-source and its JSON API works: `/api/search?fromDate=…&toDate=…&size=100` returns a date
-window, with CVSS 4.0 vectors, EPSS, vendor, product and the publishing CERT as `assigner`.
-The 25th of November alone held **294 entries**, and a three-day window 1 170. That volume, and
-the fact that an entry's `assigner` was CERT-PL: a feed collected directly, with its country
-and its translation: made it a duplicate with a heavier payload rather than a new source. Its
-`/api/lastvulnerabilities` endpoint, the only one meant for polling, returns four entries.
+**[EUVD](https://euvd.enisa.europa.eu): ENISA's European Vulnerability Database** is
+**integrated**, and this page said the opposite until 28 November 2026. The error was found by
+re-reading the code: `collect_euvd` runs in the daily report and in the alert pass, against
+`/api/kev/dump`, the European equivalent of the CISA catalogue: 1 783 entries carrying `cveId`,
+`euvdId`, `dateAdded` and the sources. What made it look refused is the volume of `/api/search`:
+294 entries on 25 November alone, mostly CERT-PL advisories we already collect directly. The
+collector therefore reads the KEV dump, keeps only recent additions, and drops any CVE the
+American KEV already lists, so the same flaw is not printed twice.
 
 **[cve.now](https://github.com/sazabi/cve.now): a hosted feed** merging the CVE List, GHSA,
 OSV, NVD, EUVD, CISA KEV, EPSS and Exploit-DB into one entry per vulnerability, with RSS, a

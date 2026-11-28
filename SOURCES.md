@@ -185,6 +185,15 @@ measurement: SecurityWeek and The Record 100 %, The Hacker News 85 %, Dark Readi
 
 ## External aggregators evaluated and refused
 
+**[vulneraibility.com](https://www.vulneraibility.com/blog/rss.xml): a misspelled domain, and a
+trademark problem before it is a data problem.** The name is not a word: it is `vulnerability` with
+an extra `i`, registered on 2025-11-08, while `vulnerability.com` has existed since 2000-01-19. The
+feed answers correctly and looks like a security blog, but of its thirty entries none carries a CVE,
+a product or a fix: they are guides, definitions and product pitches, several of which end with
+"here is how vulneraibility.com produces it". It is a competitor's content marketing on a domain
+built to catch visitors of another site, so it is refused as a source and noted here so that it is
+not proposed again.
+
 Two aggregators were examined in November 2026 because they promised to spare us work. Neither
 was integrated, and the reasons are worth keeping.
 

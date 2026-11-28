@@ -3,7 +3,7 @@
 Which national CERT each country is covered by, and why some are missing.
 
 The rule is simple: a source is collected only if it publishes **advisory-grade content** as
-a feed — products, CVE identifiers, fixes. Press releases, event announcements and awareness
+a feed: products, CVE identifiers, fixes. Press releases, event announcements and awareness
 campaigns are not collected, however official they are: in a daily brief they read as noise
 next to the vulnerability of the day.
 
@@ -87,7 +87,7 @@ Titles are rewritten by patterns (« ALERTĂ: Vulnerabilitate critică la nivelu
 feed sometimes writes a double space inside the formula.
 
 Two peculiarities of the Slovak SK-CERT feed are worth recording, because both would have
-silently emptied the source. Its address only works URL-encoded — `/index.html%3Ffeed=rss`,
+silently emptied the source. Its address only works URL-encoded: `/index.html%3Ffeed=rss`,
 with `%3F` in place of `?`; the plain form answers 404. And its entries carry **no date at
 all**, which the collector treats as "skip"; the source therefore declares `sans_date: true`
 and is dated on arrival. Deduplication by link prevents the same entries from being published
@@ -125,7 +125,7 @@ Nothing at present.
 
 | Country | Authority | Why |
 |---|---|---|
-| CH | BACS (ex-NCSC) | No feed of its own. The federal news service has one, but it carries press releases — conferences, laws, awareness campaigns |
+| CH | BACS (ex-NCSC) | No feed of its own. The federal news service has one, but it carries press releases: conferences, laws, awareness campaigns |
 | NL | NCSC nieuws | Covers the same vulnerabilities as the advisories feed, in Dutch and without severity. Collecting both would duplicate every Dutch advisory |
 | CZ | NÚKIB | News feed only |
 | DK | CFCS | News feed only |
@@ -150,18 +150,18 @@ also where the Portuguese feed came from; it was tested and refused.
 One source is technically available but outside the current perimeter: **CERT-UA**
 (`https://cert.gov.ua/api/articles/rss`). It answers correctly, publishes APT campaign
 research rather than vulnerability advisories, updates a few times a year, and writes in
-Ukrainian — the campaign names (UAC-0277, LUNEXSTEAL) are Latin, the rest is not.
+Ukrainian: the campaign names (UAC-0277, LUNEXSTEAL) are Latin, the rest is not.
 
 Third-party bridges (RSS.app and similar) are not an option: they make the watch depend on an
 unidentified service that can disappear, change its output, or relay altered content.
 
 [**RSS-Bridge**](https://github.com/RSS-Bridge/rss-bridge) is the honest version of that idea: it
 is self-hosted, so nothing is relayed by a stranger. Its 553 bridges contain none for the three
-countries still missing — the closest names are Comboios de Portugal and Cybernews, neither a
+countries still missing: the closest names are Comboios de Portugal and Cybernews, neither a
 CERT. Using it would therefore mean writing a PHP bridge per site and keeping a web server
 running beside a 15 MB desktop application, and it would not open Portugal at all: the page sits
 behind a bot check, which a self-hosted scraper cannot pass either. The gap is the same work in
-a heavier runtime, with the same fragility — a scraper that returns nothing looks like a quiet
+a heavier runtime, with the same fragility: a scraper that returns nothing looks like a quiet
 day, where a dead feed appears in the error line.
 
 ## Removed after measurement, 27 November 2026
@@ -176,8 +176,8 @@ serious it is about technology.
 | Korben | 31 | 2 (6 %) | general technology blog |
 | Clubic | 50 | 6 (12 %) | deals, robot vacuums, VPN offers |
 | Next | 50 | 8 (16 %) | general technology news |
-| HackerSploit | — | — | last published February 2023 |
-| NetworkChuck | 0 | — | the feed returns nothing |
+| HackerSploit | (|) | last published February 2023 |
+| NetworkChuck | 0 |: | the feed returns nothing |
 
 These produced the noise a reader notices first: *« Oui, on peut faire tourner macOS sur une base
 Linux »*, *« Cet aspirateur robot est à -71 % »*. For comparison, the sources kept at the same
@@ -188,26 +188,26 @@ measurement: SecurityWeek and The Record 100 %, The Hacker News 85 %, Dark Readi
 Two aggregators were examined in November 2026 because they promised to spare us work. Neither
 was integrated, and the reasons are worth keeping.
 
-**[EUVD](https://euvd.enisa.europa.eu) — ENISA's European Vulnerability Database** is a primary
+**[EUVD](https://euvd.enisa.europa.eu): ENISA's European Vulnerability Database** is a primary
 source and its JSON API works: `/api/search?fromDate=…&toDate=…&size=100` returns a date
 window, with CVSS 4.0 vectors, EPSS, vendor, product and the publishing CERT as `assigner`.
 The 25th of November alone held **294 entries**, and a three-day window 1 170. That volume, and
-the fact that an entry's `assigner` was CERT-PL — a feed collected directly, with its country
-and its translation — made it a duplicate with a heavier payload rather than a new source. Its
+the fact that an entry's `assigner` was CERT-PL: a feed collected directly, with its country
+and its translation: made it a duplicate with a heavier payload rather than a new source. Its
 `/api/lastvulnerabilities` endpoint, the only one meant for polling, returns four entries.
 
-**[cve.now](https://github.com/sazabi/cve.now) — a hosted feed** merging the CVE List, GHSA,
+**[cve.now](https://github.com/sazabi/cve.now): a hosted feed** merging the CVE List, GHSA,
 OSV, NVD, EUVD, CISA KEV, EPSS and Exploit-DB into one entry per vulnerability, with RSS, a
 JSON API and an MCP server, no account required. Its filters work (`?filter=critical`,
 `?filter=kev`), each returning 200 entries. It was refused for one reason above all: its titles
 and summaries are written by a model, not by the vendor or the CERT. A brief whose job is to
-say whether a version is affected cannot quote a paraphrase — a summary may drop a version
+say whether a version is affected cannot quote a paraphrase: a summary may drop a version
 range or invert a condition, and nothing in the entry shows where the phrasing came from. It
 also repackages sources already queried first-hand, mixes breach news with advisories, and
 re-publishes an entry whenever a proof of concept appears (the guid carries a timestamp, so the
 same CVE returns).
 
-**[OSV](https://osv.dev) — Google's open source vulnerability database** has no feed: its
+**[OSV](https://osv.dev): Google's open source vulnerability database** has no feed: its
 site announces only a blog RSS, and its data arrives as per-ecosystem archives (PyPI 36 MB,
 npm 212 MB, Go 12 MB). It is an API for exact lookups, and a good one: querying
 `django 4.2.0` returns 96 advisories, version-precise. That is a stack-audit capability,
@@ -217,7 +217,7 @@ third party. Left out, but worth remembering if the stack ever accepts a lockfil
 What both do well is deduplicate per vulnerability and merge severity data. That is precisely
 what the engine already does across its 123 feeds, with the country provenance kept.
 
-**[CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5) — the official CVE List.**
+**[CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5): the official CVE List.**
 3 324 stars, pushed every few minutes, and the registry every other source derives from. It
 offers no daily feed: cves/delta.json covers the window since the mirror last refreshed (404
 bytes on 26 November, one updated CVE), and cves/deltaLog.json holds the rolling log at 28,3 MB
@@ -225,11 +225,11 @@ for 3 786 entries. The clean interface is the CVE Services API
 (cveawg.mitre.org/api/cve/CVE-…, 3,2 KB, no key). Kept out because the engine is
 source-driven: an item enters the report because a publisher wrote it, never because a registry
 numbered it. Its real use would be a fallback when NVD has not yet analysed a CVE we already
-carry — the CNA description and affected versions are there before NVD's are.
+carry: the CNA description and affected versions are there before NVD's are.
 
-**[trickest/cve](https://github.com/trickest/cve) — a public proof-of-concept index.** MIT,
+**[trickest/cve](https://github.com/trickest/cve): a public proof-of-concept index.** MIT,
 8 255 stars, refreshed daily: one markdown sheet per CVE (CVE-2026-102275.md, 1,4 KB) with
-product, versions, CWE, description and the PoC links, at a path derived from the identifier —
+product, versions, CWE, description and the PoC links, at a path derived from the identifier:
 the same shape as CISA Vulnrichment. Two bulk files sit at the root, github.txt (17,4 MB) and
 
 eferences.txt (14,4 MB), as CVE-xxxx - url pairs. Refused for now: the SSVC decision we
@@ -238,7 +238,7 @@ feed already carry the PoCs; adopting this one would cost 17 MB a day, or one mo
 enriched CVE, for the number of proofs rather than their existence. The bulk files also hold
 noise (dozens of CVE-0000-0000 lines). Worth remembering if SSVC coverage ever feels thin.
 Its neighbour [nomi-sec/PoC-in-GitHub](https://github.com/nomi-sec/PoC-in-GitHub) does the same
-job with JSON instead of markdown — 8 236 stars, CC0, one file per CVE holding the GitHub API
+job with JSON instead of markdown: 8 236 stars, CC0, one file per CVE holding the GitHub API
 record of each proof-of-concept repository, refreshed daily. Easier to parse than markdown, and
 still the same answer to the same question; the only extra it carries is how many repositories
 exist and how popular they are, which does not change a remediation decision.
@@ -246,7 +246,7 @@ exist and how popular they are, which does not change a remediation decision.
 A third lead came from [haxdoggy/vulnerability-databases](https://github.com/haxdoggy/vulnerability-databases),
 a curated directory of vulnerability databases (a README table and a `databases.json`, CC-BY-4.0).
 It is a catalogue, not a service: it offers neither an API nor downloadable collections, and its
-Europe section lists exactly the CERTs already collected here — which is a useful confirmation
+Europe section lists exactly the CERTs already collected here: which is a useful confirmation
 rather than a discovery. Its most interesting entry is **GCVE**, CIRCL's decentralised CVE
 database: `https://db.gcve.eu/api/vulnerability/GCVE-1-2026-0001` answers with a CVE-5 style
 JSON record. It is a lookup base, like EUVD, not a feed, and the same reasoning applies.
@@ -254,12 +254,12 @@ JSON record. It is a lookup base, like EUVD, not a feed, and the same reasoning 
 **[alex-ilgayev/secfeed](https://github.com/alex-ilgayev/secfeed)** is a Go aggregator with an
 AI summariser, last pushed in March 2025. Nothing in it is usable here, but its config.yml holds
 25 feeds, so it was read as a candidate list: 13 are already collected, and of the 12 others,
-whose state was checked on 26 November, eight are gone — Threatpost's last entry dates from August
+whose state was checked on 26 November, eight are gone: Threatpost's last entry dates from August
 2022, Rapid7's blog answers 404, Veracode's feed is empty, Sophos and Digital Shadows no longer
 answer. A namesake, **[SharonBrizinov/secfeed](https://github.com/SharonBrizinov/secfeed)**, is a closer
 cousin than the Go one: 346 lines of Python, MIT, SQLite state, a poll every two hours and
-notifications to Slack, Telegram, Signal or Discord. Its method is the one refused here — HTML
-scraped by regular expressions — and its sources are CISA and CERT-EU, already collected, plus
+notifications to Slack, Telegram, Signal or Discord. Its method is the one refused here: HTML
+scraped by regular expressions: and its sources are CISA and CERT-EU, already collected, plus
 research blogs. Tested on 26 November: Claroty Team82 answers 410 Gone, SRC Incite and doar-e
 publish no feed, Tenable's blog is alive. Nothing added, but one idea worth naming: chat delivery
 as an alternative to mail, if alerts should ever reach a phone.

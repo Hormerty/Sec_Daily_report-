@@ -1,6 +1,6 @@
 # Cyber security & OSINT watch
 
-A self-hosted daily intelligence brief **built for a European footprint**. It reads 121 public sources, removes the noise, scores what matters for a given organisation, and sends one e-mail — every morning at 06:00.
+A self-hosted daily intelligence brief **built for a European footprint**. It reads 121 public sources, removes the noise, scores what matters for a given organisation, and sends one e-mail: every morning at 06:00.
 
 No dashboard, no account, no SaaS. A Python script, three GitHub Actions workflows, and your inbox.
 
@@ -17,13 +17,13 @@ Every morning, the report arrives with:
 | **Alerts & Vulnerabilities** | Per source: CISA KEV, GitHub Advisory, NVD, national CERTs, vendor advisories |
 | **Dark web & Ransomware** | Claimed victims, leak sites, French breach trackers |
 | **News & Media · Threat Intelligence · Blogs & OSINT** | Long-form analysis and press, scored and deduplicated |
-| **Your stack** | Box, Slack, Teams, Outlook, Microsoft 365, QRadar, Avigilon — only items with a real security signal |
-| **European focus** | The same items, regrouped by the countries where IBM operates — 29 entries, EU included |
+| **Your stack** | Box, Slack, Teams, Outlook, Microsoft 365, QRadar, Avigilon: only items with a real security signal |
+| **European focus** | The same items, regrouped by the countries where IBM operates: 29 entries, EU included |
 | **National CERT & trusted sources** | A ready index of the footprint's 29 entries, EU included, so you know where to look next |
 | **Exploited by vendor** | KEV entries of the last 30 days, grouped by vendor |
 | **Trend** | Seven-day comparison, volume, severity split, most active sources |
 
-Each line carries what you actually need to triage it: severity badge, country flags, product affected, MITRE technique, actor, EPSS probability, CVSS score, reference links, and — when several outlets covered the same story — how many of them did.
+Each line carries what you actually need to triage it: severity badge, country flags, product affected, MITRE technique, actor, EPSS probability, CVSS score, reference links, and (when several outlets covered the same story) how many of them did.
 
 ---
 
@@ -31,13 +31,13 @@ Each line carries what you actually need to triage it: severity badge, country f
 
 This is not a global feed reader with a European filter bolted on: the orientation is in the design.
 
-- **European focus is the section that matters.** Every item mentioning a country of the footprint is regrouped there, so a German advisory about a French subsidiary does not disappear among two hundred headlines. The footprint **ships with 29 entries**, EU included, and lives in `config.json` — change the file and the section follows. The **121 sources** (114 feeds and 7 API collectors) stay in the code: they are URLs and categories, not a perimeter.
-- **The national CERTs of the footprint are queried directly** — CERT-FR and ANSSI, CERT-EU, BSI, NCSC-NL, CERT-SE, CCB, CIRCL, CSIRT Italia, INCIBE, NCSC UK, NSM and the others — and the report always closes with their index, even on a quiet day. That is the part that tells you where to look next.
+- **European focus is the section that matters.** Every item mentioning a country of the footprint is regrouped there, so a German advisory about a French subsidiary does not disappear among two hundred headlines. The footprint **ships with 29 entries**, EU included, and lives in `config.json`: change the file and the section follows. The **121 sources** (114 feeds and 7 API collectors) stay in the code: they are URLs and categories, not a perimeter.
+- **The national CERTs of the footprint are queried directly** (CERT-FR and ANSSI, CERT-EU, BSI, NCSC-NL, CERT-SE, CCB, CIRCL, CSIRT Italia, INCIBE, NCSC UK, NSM and the others) and the report always closes with their index, even on a quiet day. That is the part that tells you where to look next.
 - **ENISA's EUVD** collector runs alongside CISA's KEV, so the European vulnerability database is covered, not only the American one.
-- **French-language sources are read in French**, never machine-translated — Next, 01net, Zataz, Korben, Clubic, IT-Connect, FrenchBreaches, Le Monde Informatique — because a French breach rarely reaches the English press.
+- **French-language sources are read in French**, never machine-translated (Next, 01net, Zataz, Korben, Clubic, IT-Connect, FrenchBreaches, Le Monde Informatique) because a French breach rarely reaches the English press.
 - **NIS2, GDPR, RGPD, DORA** are recognised keywords, and the Benelux plus France weigh more heavily than a passing mention of another country.
 
-Change `COUNTRIES` to your own perimeter and the section follows. The default is Europe — Belgium, France and their neighbours first — because that is where the reader sits.
+Change `COUNTRIES` to your own perimeter and the section follows. The default is Europe (Belgium, France and their neighbours first) because that is where the reader sits.
 
 ---
 
@@ -58,7 +58,7 @@ target product       +2      breach with PII      +5 / +8
 - **Cross-source coverage** overrides age: three independent sources covering the same CVE on the same day earn +3 and escape any penalty. A lone exploit for a four-year-old flaw is capped just below critical; a two-year-old flaw that four outlets suddenly discuss is not.
 - **Deduplication** works on links and on CVE sets. A story carried by five outlets appears once, with `Also covered by:` listing the others.
 
-The aim is not to rank vulnerabilities by CVSS — it is to rank them by how much they concern *your* organisation, today.
+The aim is not to rank vulnerabilities by CVSS: it is to rank them by how much they concern *your* organisation, today.
 
 ---
 
@@ -78,7 +78,7 @@ Ransomware            Ransomware.live, RansomLook, FrenchBreaches, Databreaches
 
 Collectors query APIs rather than feeds: **CISA KEV**, **GitHub Advisory**, **Ransomware.live**, **Have I Been Pwned**, **EUVD (ENISA)**, **NVD** (23 vendors) and **Metasploit** (newly armed modules, computed as a diff against the previous run).
 
-Enrichment is cached and optional: **EPSS** from FIRST, **CVSS and the affected product** from the NVD CPE, and aggregate campaign statistics. A source that fails never blocks the report — it is listed in an amber banner, and a source that stops publishing is reported separately from one that answers with an error.
+Enrichment is cached and optional: **EPSS** from FIRST, **CVSS and the affected product** from the NVD CPE, and aggregate campaign statistics. A source that fails never blocks the report: it is listed in an amber banner, and a source that stops publishing is reported separately from one that answers with an error.
 
 ---
 
@@ -94,11 +94,11 @@ verifier.yml  every pull request        the offline checks, blocking
 
 The third one touches no state and needs no secret: it installs the dependencies, then runs the offline checks and `pytest` on every pull request and every push to `main`. Its job is to make a dependency bump or a contributor's patch fail *before* the merge rather than in the 06:00 run.
 
-State lives on a dedicated `data` branch — seen links, a SQLite history, API caches — committed as a single force-pushed commit. That keeps `main` clean and makes a fresh clone fully functional.
+State lives on a dedicated `data` branch (seen links, a SQLite history, API caches) committed as a single force-pushed commit. That keeps `main` clean and makes a fresh clone fully functional.
 
 Three safety nets worth knowing about:
 
-- **One report per day.** If the 05:58 run succeeded, the later slots exit in seconds. `forcer: true` (or `FORCE_VEILLE=1`) overrides it — useful for a manual test.
+- **One report per day.** If the 05:58 run succeeded, the later slots exit in seconds. `forcer: true` (or `FORCE_VEILLE=1`) overrides it: useful for a manual test.
 - **Dead man's switch.** Each run pings Healthchecks.io. If no ping arrives in 24 h, you get told the bot itself is down, rather than assuming a quiet day.
 - **Alert mode.** The 3-hourly workflow only mails on genuinely urgent items: 14 points, or 5 if the product is in your stack. It reuses the same collectors with an 8-hour window, so an actively exploited CVE reaches you within three hours instead of waiting for the morning.
 
@@ -112,26 +112,26 @@ pip install -r requirements.txt
 
 ### Secrets you must provide
 
-The tool sends mail through SMTP, so it needs a mail account. Three secrets are mandatory — there is no default that would let it run without them. A fourth, `GITHUB_TOKEN`, is supplied by Actions and must not be created.
+The tool sends mail through SMTP, so it needs a mail account. Three secrets are mandatory: there is no default that would let it run without them. A fourth, `GITHUB_TOKEN`, is supplied by Actions and must not be created.
 
 | Secret | Required | What it is | Where to get it |
 |---|---|---|---|
 | `EMAIL_USER` | **yes** | The account the report is sent from | Your provider, e.g. `mywatch@gmail.com` |
-| `EMAIL_PASSWORD` | **yes** | An **application password** — never the account password | Gmail: Account → Security → 2-step verification → App passwords. Any provider offering SMTP works |
-| `RECIPIENT_EMAIL` | **yes** | Where the report is delivered, usually the same address | — |
-| `GITHUB_TOKEN` | **automatic** | Supplied by Actions and used by the GitHub Advisory collector. **Never create it, never store it yourself** | — |
+| `EMAIL_PASSWORD` | **yes** | An **application password**: never the account password | Gmail: Account → Security → 2-step verification → App passwords. Any provider offering SMTP works |
+| `RECIPIENT_EMAIL` | **yes** | Where the report is delivered, usually the same address |: |
+| `GITHUB_TOKEN` | **automatic** | Supplied by Actions and used by the GitHub Advisory collector. **Never create it, never store it yourself** |: |
 | `NVD_API_KEY` | no | Raises the NVD rate limit: one CVSS lookup every 0.7 s instead of every 6.5 s, so 30 per run instead of 10 | <https://nvd.nist.gov/developers/request-an-api-key> |
 | `RANSOMWARE_API_KEY` | no | Adds victim claims and group names from Ransomware.live | <https://www.ransomware.live/> |
 | `HEALTHCHECK_URL` | no | Dead man's switch for the daily report, 24 h period. **Must be a different UUID from the alert one** | <https://healthchecks.io/> |
 | `HEALTHCHECK_URL_ALERTE` | no | Second, separate check for the 3-hourly run, 3 h period. **Must be a different UUID from the daily one** | <https://healthchecks.io/> |
 
-> ⚠️ **The two healthcheck URLs are read by the workflows, not by the script** — they are a `curl` at the end of each job, not a variable the Python reads. Point both at the same UUID and a failed daily report will look exactly like a quiet alert run: you lose the only signal that tells you the bot itself has stopped.
+> ⚠️ **The two healthcheck URLs are read by the workflows, not by the script**: they are a `curl` at the end of each job, not a variable the Python reads. Point both at the same UUID and a failed daily report will look exactly like a quiet alert run: you lose the only signal that tells you the bot itself has stopped.
 >
-> ⚠️ **Nothing in this table is ever committed.** `.env` is already in `.gitignore`, and a leaked token is revoked at the provider, never simply edited out of a file — git remembers.
+> ⚠️ **Nothing in this table is ever committed.** `.env` is already in `.gitignore`, and a leaked token is revoked at the provider, never simply edited out of a file: git remembers.
 
 ### Where to put them
 
-Locally, export them in your shell — the script reads environment variables, not a `.env` file:
+Locally, export them in your shell: the script reads environment variables, not a `.env` file:
 
 ```bash
 export EMAIL_USER="mywatch@gmail.com"
@@ -162,7 +162,7 @@ python veille.py
 
 The first launch builds a baseline: KEV and Metasploit caches are filled and existing links are recorded, so the first report is smaller than the following ones. That is expected, not a bug.
 
-On GitHub, once the secrets are in place, the workflows take over — no further setup.
+On GitHub, once the secrets are in place, the workflows take over: no further setup.
 
 ---
 
@@ -181,24 +181,24 @@ All values are environment variables, all optional:
 | `ALERT_THRESHOLD` | `14` | Score that triggers an immediate alert |
 | `ALERT_STACK_THRESHOLD` | `5` | Same, for a product in your stack |
 | `ALERT_MAX` | `5` | Items per alert e-mail; the rest waits for the next slot |
-| `FORCE_VEILLE` | — | `1` sends a report even if one already went out |
+| `FORCE_VEILLE` |: | `1` sends a report even if one already went out |
 | `IGNORE_SEEN` | `1` | `0` replays items already delivered |
 | `SEND_IF_DEGRADED` | `0` | `1` sends the report even when the watch is degraded (no reachable source, more than 30 % in error, KEV down) |
-| `PREVIEW` | — | `1` or `--preview`: writes `preview.html` and `preview.txt`, sends nothing, touches no state |
+| `PREVIEW` |: | `1` or `--preview`: writes `preview.html` and `preview.txt`, sends nothing, touches no state |
 | `PREVIEW_OUT` | `preview` | Path prefix for the preview files |
 
-Your own organisation is described in `config.json`, at the root of the repository: `countries` (the footprint used by the European section), `stack` (your actual tooling) and `targets` (the vendors and products you care about). The file ships with the defaults — **29 countries, 7 stack products, 81 targets** — so a missing file changes nothing at all. Copy `config.example.json` to `config.json` and edit only what you need.
+Your own organisation is described in `config.json`, at the root of the repository: `countries` (the footprint used by the European section), `stack` (your actual tooling) and `targets` (the vendors and products you care about). The file ships with the defaults (**29 countries, 7 stack products, 81 targets**) so a missing file changes nothing at all. Copy `config.example.json` to `config.json` and edit only what you need.
 
 Two rules, and they are enough:
 
 - an entry you provide **replaces** the default carrying the same name (a country code, a stack product, the target list as a whole);
 - `null` **removes** it.
 
-Everything else — the scoring, the thresholds, the source list — stays in `veille.py`, because that is logic rather than perimeter. A malformed file is refused at startup with the offending section and field named, rather than a section quietly missing from the report.
+Everything else (the scoring, the thresholds, the source list) stays in `veille.py`, because that is logic rather than perimeter. A malformed file is refused at startup with the offending section and field named, rather than a section quietly missing from the report.
 
 ### Adding a product to your stack
 
-`STACK_PRODUCTS` maps a name — the one printed in the report — to the phrases that identify it, lower-case and matched on word boundaries. One entry is enough: the report header, the stack section and the alert threshold all follow from the dict.
+`STACK_PRODUCTS` maps a name (the one printed in the report) to the phrases that identify it, lower-case and matched on word boundaries. One entry is enough: the report header, the stack section and the alert threshold all follow from the dict.
 
 ```python
 STACK_PRODUCTS["GitLab"] = ["gitlab", "gitlab ci", "gitlab runner", "gitlab self-managed"]
@@ -206,7 +206,7 @@ STACK_PRODUCTS["GitLab"] = ["gitlab", "gitlab ci", "gitlab runner", "gitlab self
 
 Two things worth knowing before adding one:
 
-- **The words you choose decide the noise.** `box` and `teams` needed guards in the code — *black box*, *box office*, *security teams* — and `outlook` needed a filter for every market study titled *Threat Outlook 2027*. A bare common word matches everything. Give the phrase, not the word: `box drive`, not `box`.
+- **The words you choose decide the noise.** `box` and `teams` needed guards in the code (*black box*, *box office*, *security teams*) and `outlook` needed a filter for every market study titled *Threat Outlook 2027*. A bare common word matches everything. Give the phrase, not the word: `box drive`, not `box`.
 - **A stack hit is loud by design.** Any article naming the product scores +2, and the alert threshold drops from 14 to 5, so a careless keyword turns the 3-hourly alert into a newsletter. Add the product you actually run, not the one you keep reading about.
 
 The dict order is the order the sections appear in the report, and each one keeps at most six articles per run, 24 in total.
@@ -220,9 +220,9 @@ python _check_veille.py     # offline, no network, ~50 named checks
 pytest                      # the same ground, through pytest
 ```
 
-The offline suite covers scoring, deduplication, CVE extraction, country and stack detection, feed edge cases (undated entries, HTML served instead of XML, moved addresses) and the silence detection. It runs in a second and needs no credentials, which is why `verifier.yml` runs it on every pull request and every push to `main`. A red check stays red on the pull request — and, on a public repository, the commit that would break the morning report is stopped at the door rather than discovered at 06:00.
+The offline suite covers scoring, deduplication, CVE extraction, country and stack detection, feed edge cases (undated entries, HTML served instead of XML, moved addresses) and the silence detection. It runs in a second and needs no credentials, which is why `verifier.yml` runs it on every pull request and every push to `main`. A red check stays red on the pull request: and, on a public repository, the commit that would break the morning report is stopped at the door rather than discovered at 06:00.
 
-A fourth step in the same workflow guards the secrets themselves. GitHub scans provider credentials on public repositories for free, but the **generic** patterns — private keys, connection strings — are reserved for organization-owned repositories, and this one sits under a personal account. [`gitleaks`](https://github.com/gitleaks/gitleaks) covers that ground instead, with its default rules. The same check can run before the commit rather than after the push:
+A fourth step in the same workflow guards the secrets themselves. GitHub scans provider credentials on public repositories for free, but the **generic** patterns (private keys, connection strings) are reserved for organization-owned repositories, and this one sits under a personal account. [`gitleaks`](https://github.com/gitleaks/gitleaks) covers that ground instead, with its default rules. The same check can run before the commit rather than after the push:
 
 ```bash
 git config core.hooksPath scripts/hooks   # once, from the repository root
@@ -252,4 +252,4 @@ It funds the sources that cost money to query, and the occasional evening spent 
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Use it, fork it, adapt it to your own organisation.
+MIT: see [LICENSE](LICENSE). Use it, fork it, adapt it to your own organisation.
